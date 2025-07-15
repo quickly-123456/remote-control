@@ -1,0 +1,4 @@
+<resources>
+    <string name="app_name">OmniControl</string>
+    <string name="accessibility_service_description">全视界远程控制无障碍服务，用于实现远程输入、点击、滑动等操作功能。启用此服务后，远程控制端可以通过网络对此设备进行输入控制。</string>
+</resources>

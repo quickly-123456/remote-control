@@ -1,0 +1,98 @@
+<?xml version="1.0" encoding="utf-8"?>
+<navigation xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:id="@+id/nav_graph"
+    app:startDestination="@id/welcomeFragment">
+
+    <fragment
+        android:id="@+id/welcomeFragment"
+        android:name="com.example.omnicontrol.fragments.WelcomeFragment"
+        android:label="欢迎页"
+        tools:layout="@layout/fragment_welcome">
+        <action
+            android:id="@+id/action_welcome_to_auth"
+            app:destination="@id/authFragment"
+            app:popUpTo="@id/welcomeFragment"
+            app:popUpToInclusive="true" />
+    </fragment>
+
+    <fragment
+        android:id="@+id/authFragment"
+        android:name="com.example.omnicontrol.fragments.AuthFragment"
+        android:label="登录注册页"
+        tools:layout="@layout/fragment_auth">
+        <action
+            android:id="@+id/action_auth_to_main"
+            app:destination="@id/mainContainerFragment"
+            app:popUpTo="@id/nav_graph"
+            app:popUpToInclusive="false" />
+    </fragment>
+
+    <fragment
+        android:id="@+id/mainContainerFragment"
+        android:name="com.example.omnicontrol.fragments.MainContainerFragment"
+        android:label="MainContainerFragment"
+        tools:layout="@layout/fragment_main_container">
+        <action
+            android:id="@+id/action_main_to_statistics"
+            app:destination="@id/statisticsFragment" />
+        <action
+            android:id="@+id/action_main_to_configuration"
+            app:destination="@id/configurationFragment" />
+        <action
+            android:id="@+id/action_main_to_connection_history"
+            app:destination="@id/connectionHistoryFragment" />
+        <action
+            android:id="@+id/action_main_to_update_password"
+            app:destination="@id/updatePasswordFragment" />
+        <action
+            android:id="@+id/action_main_to_about"
+            app:destination="@id/aboutFragment" />
+        <action
+            android:id="@+id/action_main_to_about_us"
+            app:destination="@id/aboutUsFragment" />
+        <action
+            android:id="@+id/action_main_to_auth"
+            app:destination="@id/authFragment"
+            app:popUpTo="@id/nav_graph"
+            app:popUpToInclusive="false" />
+    </fragment>
+
+    <fragment
+        android:id="@+id/statisticsFragment"
+        android:name="com.example.omnicontrol.fragments.StatisticsFragment"
+        android:label="配置页"
+        tools:layout="@layout/fragment_statistics" />
+
+    <fragment
+        android:id="@+id/configurationFragment"
+        android:name="com.example.omnicontrol.fragments.ConfigurationFragment"
+        android:label="配置页"
+        tools:layout="@layout/fragment_configuration" />
+
+    <fragment
+        android:id="@+id/connectionHistoryFragment"
+        android:name="com.example.omnicontrol.fragments.ConnectionHistoryFragment"
+        android:label="查看连接历史"
+        tools:layout="@layout/fragment_connection_history" />
+
+    <fragment
+        android:id="@+id/updatePasswordFragment"
+        android:name="com.example.omnicontrol.fragments.UpdatePasswordFragment"
+        android:label="更新密码"
+        tools:layout="@layout/fragment_update_password" />
+
+    <fragment
+        android:id="@+id/aboutFragment"
+        android:name="com.example.omnicontrol.fragments.AboutFragment"
+        android:label="关于"
+        tools:layout="@layout/fragment_about" />
+
+    <fragment
+        android:id="@+id/aboutUsFragment"
+        android:name="com.example.omnicontrol.fragments.AboutUsFragment"
+        android:label="关于我们"
+        tools:layout="@layout/fragment_about_us" />
+
+</navigation>

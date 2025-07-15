@@ -1,0 +1,42 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="48dp"
+    android:height="48dp"
+    android:viewportWidth="100"
+    android:viewportHeight="60">
+    <!-- 主体框架 -->
+    <path
+        android:fillColor="#1A1A1A"
+        android:pathData="M15,10 L85,10 L85,50 L15,50 Z"/>
+    
+    <!-- 内部白色区域 -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M18,13 L82,13 L82,47 L18,47 Z"/>
+    
+    <!-- 左侧垂直装饰条 -->
+    <path
+        android:fillColor="#1A1A1A"
+        android:pathData="M20,15 L25,15 L25,45 L20,45 Z"/>
+    
+    <!-- 中间分割线 -->
+    <path
+        android:fillColor="#E0E0E0"
+        android:pathData="M30,20 L75,20 L75,22 L30,22 Z"/>
+    <path
+        android:fillColor="#E0E0E0"
+        android:pathData="M30,25 L75,25 L75,27 L30,27 Z"/>
+    <path
+        android:fillColor="#E0E0E0"
+        android:pathData="M30,30 L75,30 L75,32 L30,32 Z"/>
+    <path
+        android:fillColor="#E0E0E0"
+        android:pathData="M30,35 L75,35 L75,37 L30,37 Z"/>
+    
+    <!-- 右上角小点装饰 -->
+    <path
+        android:fillColor="#666666"
+        android:pathData="M73.5,18 A1.5,1.5 0 1,1 76.5,18 A1.5,1.5 0 1,1 73.5,18 Z"/>
+    <path
+        android:fillColor="#666666"
+        android:pathData="M76.5,18 A1.5,1.5 0 1,1 79.5,18 A1.5,1.5 0 1,1 76.5,18 Z"/>
+</vector>
