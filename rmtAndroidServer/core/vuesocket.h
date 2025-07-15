@@ -10,7 +10,7 @@ class VueSocket : public QObject
 {
     Q_OBJECT
 public:
-    explicit        VueSocket(const QString & super_id, QWebSocket *socket, QObject *parent = nullptr);
+    explicit        VueSocket(const QString & super_id, QObject *parent = nullptr);
 
     QWebSocket *    socket() const;
     void            setSocket(QWebSocket * socket);

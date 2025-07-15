@@ -4,11 +4,11 @@
 
 #include "rdtmessage.h"
 
-VueSocket::VueSocket(const QString & super_id, QWebSocket *socket, QObject *parent)
+VueSocket::VueSocket(const QString & super_id, QObject *parent)
     : QObject{parent}
 {
     _super_id = super_id;
-    _socket = socket;
+    _socket = NULL;
 }
 
 QWebSocket * VueSocket::socket() const
@@ -28,6 +28,9 @@ QString VueSocket::superId() const
 
 void VueSocket::send(RDTMessage & msg)
 {
+    if (!_socket)
+        return;
+
     _socket->sendBinaryMessage(msg.data());
 }
 

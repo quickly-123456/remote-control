@@ -35,5 +35,8 @@ bool UserSocket::isConnected() const
 
 void UserSocket::send(RDTMessage & msg)
 {
+    if (!_socket)
+        return;
+
     _socket->sendBinaryMessage(msg.data());
 }

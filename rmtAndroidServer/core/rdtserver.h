@@ -5,15 +5,21 @@
 #include <QMap>
 
 class QWebSocketServer;
+class QWebSocket;
 
 class Channel;
-class VueSocket;
+class UserSocket;
+class User;
 
 class RDTServer : public QObject
 {
     Q_OBJECT
 public:
     explicit RDTServer(QObject *parent = nullptr);
+
+    static RDTServer *          instance();
+
+    void                        checkChannelAndUser(const User & user);
 
 signals:
 
@@ -28,10 +34,14 @@ private:
 
     Channel *                   createChannel(const QString & super_id);
 
+    void                        getSocketOwner(QWebSocket *socket, User *user);
+    void                        setSocketOwner(QWebSocket *socket, const User & user, bool isVue = false);
+
+    static RDTServer *          _instance;
+
     QWebSocketServer *          _server;
 
     QMap<QString, Channel *>    _channels;
-    QMap<QString, VueSocket *>  _vues;
 };
 
 #endif // RDTSERVER_H

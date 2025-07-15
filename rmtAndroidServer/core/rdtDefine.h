@@ -15,6 +15,9 @@ enum RdtSignal
 
     CS_SCREEN,
     SC_SCREEN,
+
+    CS_USER_DISCONNECT,
+    SC_USER_DISCONNECT
 };
 
 #endif // RDTDEFINE_H

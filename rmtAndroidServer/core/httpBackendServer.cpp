@@ -16,6 +16,8 @@
 #include "permission.h"
 #include "logger.h"
 
+#include "rdtserver.h"
+
 HttpBackendServer::HttpBackendServer(QObject *parent) : QTcpServer(parent) {
     if (!listen(QHostAddress::Any, BACKEND_PORT)) {
         Logger::info() << DEBUG_MSG_BACKEND_FAILED << errorString();
@@ -128,7 +130,6 @@ void HttpBackendServer::procApi(QTcpSocket *socket, API_INFO api, const QByteArr
         User user(phone, pwd, super_id);
         int nResult = MySQLHandler::instance()->singup(user);
 
-
         QJsonObject jsonResponse;
         jsonResponse["result"] = nResult;
         const char * errMsg[] = MSG_SIGNUP_FAILED_REASON_CH;
@@ -136,6 +137,8 @@ void HttpBackendServer::procApi(QTcpSocket *socket, API_INFO api, const QByteArr
         QJsonDocument responseDoc(jsonResponse);
         QByteArray response = responseDoc.toJson();
         makeGetResponse(httpResponse, response);
+
+        RDTServer::instance()->checkChannelAndUser(user);
     }
     break;
     case API_INFO_LOGIN:

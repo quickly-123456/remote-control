@@ -7,6 +7,9 @@
 class UserSocket;
 class User;
 class RDTMessage;
+class VueSocket;
+
+class QWebSocket;
 
 class Channel : public QObject
 {
@@ -22,11 +25,31 @@ public:
 
     void            toMessage(RDTMessage & message);
 
+    VueSocket *     vueSocketWeb() const;
+    VueSocket *     vueSocketMobile() const;
+
+    void            connected(QWebSocket *socket, const QString & phone);
+    void            disconnected(const QString & phone);
+
+    void            connectedWebVue(QWebSocket *socket);
+    void            disconnectedWebVue();
+
+    void            connectedMobileVue();
+    void            disconnectedMobileVue();
+
+    int             receivedImageFrom(const QString & phone, RDTMessage & message);
+
+
 signals:
 
 private:
+    void            sendToVue(RDTMessage & message);
+
     QString                     _admin;
     QMap<QString, UserSocket *> _userSockets;
+
+    VueSocket *                 _vueSocketWeb;
+    VueSocket *                 _vueSocketMobile;
 };
 
 #endif // CHANEL_H
