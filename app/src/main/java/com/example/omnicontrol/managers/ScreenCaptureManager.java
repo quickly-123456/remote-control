@@ -332,8 +332,8 @@ public class ScreenCaptureManager {
         
         Image image = null;
         try {
-            // 先清理所有可用的图像，只保留最新的
-            image = imageReader.acquireLatestImage();
+            // 使用acquireNextImage()而不是acquireLatestImage()以避免缓冲区问题
+            image = imageReader.acquireNextImage();
             if (image != null) {
                 // 在后台线程中处理，确保快速释放当前线程
                 final Image finalImage = image;
@@ -344,25 +344,17 @@ public class ScreenCaptureManager {
                 Log.d(TAG, "没有可用的截图图像");
             }
         } catch (IllegalStateException e) {
-            // 处理缓冲区满的情况
-            if (e.getMessage() != null && e.getMessage().contains("maxImages")) {
-                Log.w(TAG, "ImageReader缓冲区已满，跳过此次截图");
-                // 尝试清理缓冲区
-                try {
-                    while (true) {
-                        Image oldImage = imageReader.acquireNextImage();
-                        if (oldImage != null) {
-                            oldImage.close();
-                        } else {
-                            break;
-                        }
-                    }
-                } catch (Exception clearEx) {
-                    // 清理完成或无更多图像
-                }
+            // 处理缓冲区相关问题
+            String errorMsg = e.getMessage();
+            if (errorMsg != null && (errorMsg.contains("maxImages") || errorMsg.contains("dequeueBuffer"))) {
+                Log.w(TAG, "ImageReader缓冲区问题，尝试清理: " + errorMsg);
+                // 安全清理缓冲区
+                clearImageReaderBuffer();
             } else {
-                Log.e(TAG, "截图获取失败: " + e.getMessage(), e);
+                Log.e(TAG, "截图获取失败: " + errorMsg, e);
             }
+        } catch (UnsupportedOperationException e) {
+            Log.w(TAG, "ImageReader操作不支持，跳过此次截图: " + e.getMessage());
         } catch (Exception e) {
             Log.e(TAG, "截图获取失败: " + e.getMessage(), e);
         } finally {
@@ -374,6 +366,40 @@ public class ScreenCaptureManager {
                     Log.w(TAG, "释放图像资源失败: " + e.getMessage());
                 }
             }
+        }
+    }
+    
+    /**
+     * 安全清理ImageReader缓冲区
+     */
+    private void clearImageReaderBuffer() {
+        if (imageReader == null) return;
+        
+        try {
+            int clearedCount = 0;
+            // 清理所有待处理的图像
+            while (clearedCount < 5) { // 最多清理5个，防止无限循环
+                Image oldImage = null;
+                try {
+                    oldImage = imageReader.acquireNextImage();
+                    if (oldImage != null) {
+                        oldImage.close();
+                        clearedCount++;
+                    } else {
+                        break; // 没有更多图像
+                    }
+                } catch (Exception e) {
+                    if (oldImage != null) {
+                        oldImage.close();
+                    }
+                    break; // 清理完成或出现异常
+                }
+            }
+            if (clearedCount > 0) {
+                Log.i(TAG, "已清理ImageReader缓冲区，释放了" + clearedCount + "个图像");
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "清理ImageReader缓冲区失败: " + e.getMessage());
         }
     }
     
@@ -621,8 +647,8 @@ public class ScreenCaptureManager {
                 return;
             }
             
-            // 创建ImageReader - 用于截图
-            imageReader = ImageReader.newInstance(screenWidth, screenHeight, PixelFormat.RGBA_8888, 3);
+            // 创建ImageReader - 用于截图 (使用2个缓冲区以兼容更多设备)
+            imageReader = ImageReader.newInstance(screenWidth, screenHeight, PixelFormat.RGBA_8888, 2);
             
             // 创建VirtualDisplay
             virtualDisplay = mediaProjection.createVirtualDisplay(
