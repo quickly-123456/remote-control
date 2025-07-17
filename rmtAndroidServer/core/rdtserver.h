@@ -15,6 +15,14 @@ class RDTServer : public QObject
 {
     Q_OBJECT
 public:
+    enum SocketOwnerInfo
+    {
+        SocketOwnerUnknown = -1,
+        SocketOwnerUser,
+        SocketOwnerVue,
+        SocketOwnerAndroidAdmin
+    };
+
     explicit RDTServer(QObject *parent = nullptr);
 
     static RDTServer *          instance();
@@ -34,8 +42,8 @@ private:
 
     Channel *                   createChannel(const QString & super_id);
 
-    void                        getSocketOwner(QWebSocket *socket, User *user);
-    void                        setSocketOwner(QWebSocket *socket, const User & user, bool isVue = false);
+    SocketOwnerInfo             getSocketOwner(QWebSocket *socket, User *user);
+    void                        setSocketOwner(QWebSocket *socket, const User & user, SocketOwnerInfo owner = SocketOwnerUser);
 
     static RDTServer *          _instance;
 

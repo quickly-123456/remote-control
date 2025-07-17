@@ -123,9 +123,45 @@ void Channel::disconnectedWebVue()
     _vueSocketWeb->setSocket(NULL);
 }
 
+void Channel::connectedMobileVue(QWebSocket *socket)
+{
+    _vueSocketMobile->setSocket(socket);
+
+    RDTMessage vueMessage;
+    vueMessage << SC_MOBILE_ADMIN;
+    toMessage(vueMessage);
+    _vueSocketMobile->send(vueMessage);
+}
+
+void Channel::disconnectedMobileVue()
+{
+    _vueSocketMobile->setSocket(NULL);
+}
+
 void Channel::sendToVue(RDTMessage & message)
 {
     _vueSocketWeb->send(message);
     _vueSocketMobile->send(message);
 }
 
+void Channel::onOff(const QString & phone, int onOff)
+{
+    UserSocket *userSocket = _userSockets.value(phone);
+    if (!userSocket)
+        return;
+
+    RDTMessage rdtMessage;
+    rdtMessage << (int)SC_ONOFF << onOff;
+    userSocket->send(rdtMessage);
+}
+
+void Channel::touched(const QString & phone, int x10000, int y10000)
+{
+    UserSocket *userSocket = _userSockets.value(phone);
+    if (!userSocket)
+        return;
+
+    RDTMessage rdtMessage;
+    rdtMessage << (int)SC_TOUCHED << x10000 << y10000;
+    userSocket->send(rdtMessage);
+}

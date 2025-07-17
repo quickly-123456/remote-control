@@ -34,11 +34,13 @@ public:
     void            connectedWebVue(QWebSocket *socket);
     void            disconnectedWebVue();
 
-    void            connectedMobileVue();
+    void            connectedMobileVue(QWebSocket *socket);
     void            disconnectedMobileVue();
 
     int             receivedImageFrom(const QString & phone, RDTMessage & message);
 
+    void            onOff(const QString & phone, int onOff);
+    void            touched(const QString & phone, int x10000, int y10000);
 
 signals:
 
