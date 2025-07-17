@@ -93,19 +93,21 @@ int Channel::receivedImageFrom(const QString & phone, RDTMessage & message)
     QByteArray compScreenData;
     message >>  timeStamp >> compScreenData;
 
+    int nLen = compScreenData.length();
+
     int curtimemsec = QDateTime::currentMSecsSinceEpoch();
     int diff = curtimemsec - timeStamp;
     RDTMessage userMessage;
-    userMessage << SC_SCREEN << diff;
+    userMessage << SC_SCREEN << diff << nLen;
     UserSocket *userSocket = _userSockets.value(phone);
     if (userSocket)
         userSocket->send(userMessage);
 
     RDTMessage vueMessage;
-    vueMessage << SC_SCREEN << phone << compScreenData;
+    vueMessage << SC_SCREEN << phone << curtimemsec << compScreenData;
     sendToVue(vueMessage);
 
-    return compScreenData.size();
+    return nLen;
 }
 
 void Channel::connectedWebVue(QWebSocket *socket)
