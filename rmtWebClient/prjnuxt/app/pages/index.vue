@@ -1,8 +1,27 @@
 <template>
-    <div>
-      <p>index</p>
+  <div class="flex flex-col items-center justify-center gap-4 h-screen">
+    <h1 class="font-bold text-2xl text-(--ui-primary)">
+      Starter
+    </h1>
+
+    <div class="flex items-center gap-2">
+      <UButton
+        label="sendCSVue"
+        icon="i-lucide-square-play"
+        @click="sendCSVue(ws, 'admin_test')"
+      />
+
+      <UButton
+        label="Login"
+        color="neutral"
+        variant="outline"
+        icon="i-lucide-lightbulb"
+        to="/login"
+      />
     </div>
+  </div>
 </template>
+
 <script setup lang="ts">
 import { RdtSignal, RDT_PORT } from './rdtDefine'
 
@@ -43,6 +62,10 @@ function packMessage(...fields: (string | number | Uint8Array)[]): ArrayBuffer {
   }
 
   return buffer;
+}
+
+function test2() {
+  console.log('====test2');
 }
 
 function sendCSVue(ws: WebSocket, id: string) {
