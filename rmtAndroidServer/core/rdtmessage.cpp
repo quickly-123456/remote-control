@@ -7,15 +7,11 @@ RDTMessage::RDTMessage(const QByteArray & data) : _data(data), _offset(0) {}
 
 RDTMessage& RDTMessage::operator<<(const QString &msg) {
     QByteArray byteArray = msg.toUtf8();
-    int size = byteArray.size();
-    _data.append(reinterpret_cast<const char*>(&size), sizeof(size));
     _data.append(byteArray);
     return *this;
 }
 
 RDTMessage& RDTMessage::operator<<(const QByteArray &msg) {
-    int size = msg.size();
-    _data.append(reinterpret_cast<const char*>(&size), sizeof(size));
     _data.append(msg);
     return *this;
 }
@@ -32,7 +28,6 @@ RDTMessage& RDTMessage::operator<<(float value) {
 
 RDTMessage& RDTMessage::fromRawData(const unsigned char *msg, int length) {
     if (length > 0) {
-        _data.append(reinterpret_cast<const char*>(&length), sizeof(length));
         _data.append(reinterpret_cast<const char*>(msg), length);
     }
     return *this;
@@ -41,7 +36,6 @@ RDTMessage& RDTMessage::fromRawData(const unsigned char *msg, int length) {
  RDTMessage& RDTMessage::operator>>(QString &msg) {
     if (_data.size() < (unsigned int)(_offset + sizeof(int))) return *this; // Ensure there's enough data
     int size = *reinterpret_cast<const int*>(_data.constData() + _offset); // Read the size as 4 bytes
-    _offset += sizeof(int); // Update offset for string data
     if (size > 0 && size <= (_data.size() - _offset)) {
         msg = QString::fromUtf8(_data.constData() + _offset, size);
         _offset += size; // Update offset after reading the string
@@ -52,7 +46,6 @@ RDTMessage& RDTMessage::fromRawData(const unsigned char *msg, int length) {
 RDTMessage& RDTMessage::operator>>(QByteArray &msg){
     if (_data.size() < (unsigned int)(_offset + sizeof(int))) return *this; // Ensure there's enough data
     int size = *reinterpret_cast<const int*>(_data.constData() + _offset);
-    _offset += sizeof(int); // Update offset for byte array data
     if (size > 0 && size <= (_data.size() - _offset)) {
         msg = _data.mid(_offset, size);
         _offset += size; // Update offset after reading the byte array
@@ -79,9 +72,6 @@ RDTMessage& RDTMessage::operator>>(float &value){
 RDTMessage& RDTMessage::toRawData(unsigned char *msg, int *length) {
     if (_data.size() < (unsigned int)(_offset + sizeof(int))) return *this; // Ensure there's enough data
     int size = *reinterpret_cast<const int*>(_data.constData() + _offset);
-    if (length)
-        *length = size;
-    _offset += sizeof(int); // Update offset for byte array data
     if (size > 0 && size <= (_data.size() - _offset)) {
         memcpy(msg, _data.constData() + _offset, size);
         _offset += size; // Update offset after reading the byte array
