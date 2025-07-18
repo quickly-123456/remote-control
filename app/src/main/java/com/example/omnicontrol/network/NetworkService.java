@@ -12,7 +12,7 @@ import java.util.concurrent.TimeUnit;
  */
 public class NetworkService {
     
-    private static final String BASE_URL = "http://185.128.227.222:5555/";
+    private static final String BASE_URL = "http://185.128.227.222:5558/";
     private static NetworkService instance;
     private ApiService apiService;
     

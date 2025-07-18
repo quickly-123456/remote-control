@@ -82,6 +82,15 @@ public class RDTMessage {
         return this;
     }
     
+    public RDTMessage writeRawBytes(byte[] data) {
+        try {
+            writer.write(data);
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+        return this;
+    }
+    
     // 读取操作符重载 (>>)
     public String readString() {
         try {

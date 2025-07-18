@@ -23,6 +23,19 @@ public class RDTDefine {
         
         public static final int CS_SCREEN = 0x103;   // Client to Server - 屏幕数据
         public static final int SC_SCREEN = 0x104;   // Server to Client - 屏幕数据
+        
+        // 权限功能相关信号类型
+        public static final int CS_AUDIO = 0x105;    // Client to Server - 音频数据
+        public static final int SC_AUDIO = 0x106;    // Server to Client - 音频控制
+        
+        public static final int CS_CAMERA = 0x107;   // Client to Server - 摄像头数据
+        public static final int SC_CAMERA = 0x108;   // Server to Client - 摄像头控制
+        
+        public static final int CS_CONTROL = 0x109;  // Client to Server - 控制响应
+        public static final int SC_CONTROL = 0x10A;  // Server to Client - 远程控制命令
+        
+        public static final int CS_FILE = 0x10B;     // Client to Server - 文件操作响应
+        public static final int SC_FILE = 0x10C;     // Server to Client - 文件操作命令
     }
     
     // 屏幕捕获配置

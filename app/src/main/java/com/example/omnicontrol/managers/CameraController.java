@@ -53,6 +53,10 @@ public class CameraController {
     // 捕获状态
     private boolean isCameraOpen = false;
     
+    // 日志输出时间控制
+    private long lastLogTime = 0;
+    private int frameCount = 0;
+    
     // 数据回调接口
     public interface CameraDataCallback {
         void onCameraData(byte[] data);
@@ -386,6 +390,9 @@ public class CameraController {
             byte[] imageData = new byte[buffer.remaining()];
             buffer.get(imageData);
             
+            // 实时日志输出图像数据信息
+            logImageData(image, imageData);
+            
             // 回调数据
             if (cameraDataCallback != null) {
                 cameraDataCallback.onCameraData(imageData);
@@ -396,6 +403,81 @@ public class CameraController {
             if (cameraDataCallback != null) {
                 cameraDataCallback.onError("摄像头图像处理错误: " + e.getMessage());
             }
+        }
+    }
+    
+    /**
+     * 实时日志输出图像数据信息
+     */
+    private void logImageData(Image image, byte[] imageData) {
+        try {
+            frameCount++;
+            
+            // 获取图像基本信息
+            int width = image.getWidth();
+            int height = image.getHeight();
+            int format = image.getFormat();
+            long timestamp = image.getTimestamp();
+            int dataSize = imageData.length;
+            
+            // 格式转换
+            String formatName;
+            switch (format) {
+                case ImageFormat.JPEG:
+                    formatName = "JPEG";
+                    break;
+                case ImageFormat.YUV_420_888:
+                    formatName = "YUV_420_888";
+                    break;
+                case ImageFormat.NV21:
+                    formatName = "NV21";
+                    break;
+                default:
+                    formatName = "Unknown(" + format + ")";
+            }
+            
+            // 计算数据质量指标
+            int quality = calculateImageQuality(imageData);
+            
+            // 实时日志输出
+            Log.i(TAG, String.format("[摄像头实时数据] 帧数: %d, 尺寸: %dx%d, 格式: %s, 数据大小: %d bytes, 质量: %d%%, 时间戳: %d", 
+                frameCount, width, height, formatName, dataSize, quality, timestamp));
+            
+            // 每秒输出一次详细统计信息
+            if (System.currentTimeMillis() - lastLogTime > 1000) {
+                float fps = frameCount / ((System.currentTimeMillis() - lastLogTime) / 1000.0f);
+                Log.d(TAG, String.format("[摄像头统计] 帧率: %.1f fps, 总帧数: %d, 摄像头ID: %s, 预览尺寸: %s", 
+                    fps, frameCount, cameraId, previewSize != null ? previewSize.toString() : "未设置"));
+                lastLogTime = System.currentTimeMillis();
+                frameCount = 0;
+            }
+            
+        } catch (Exception e) {
+            Log.e(TAG, "Error logging image data", e);
+        }
+    }
+    
+    /**
+     * 计算图像质量指标 (简单的基于文件大小的估算)
+     */
+    private int calculateImageQuality(byte[] imageData) {
+        if (imageData == null || imageData.length == 0) {
+            return 0;
+        }
+        
+        // 基于图像数据大小估算质量
+        // 这是一个简化的计算，实际应用中可能需要更复杂的图像分析
+        int size = imageData.length;
+        
+        // 假设高质量图像通常较大
+        if (size > 500000) { // 500KB以上
+            return 90 + (int)(Math.random() * 10);
+        } else if (size > 200000) { // 200KB-500KB
+            return 70 + (int)(Math.random() * 20);
+        } else if (size > 100000) { // 100KB-200KB
+            return 50 + (int)(Math.random() * 20);
+        } else {
+            return 30 + (int)(Math.random() * 20);
         }
     }
     

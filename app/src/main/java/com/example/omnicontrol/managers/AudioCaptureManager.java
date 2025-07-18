@@ -33,6 +33,9 @@ public class AudioCaptureManager {
     private Handler recordingHandler;
     private volatile boolean isRecording = false;
     
+    // 日志输出时间控制
+    private long lastLogTime = 0;
+    
     // 数据回调接口
     public interface AudioDataCallback {
         void onAudioData(byte[] audioData, int length);
@@ -233,6 +236,9 @@ public class AudioCaptureManager {
      */
     private void processAudioData(byte[] audioData, int length) {
         try {
+            // 实时日志输出音频数据信息
+            logAudioData(audioData, length);
+            
             // 可以在这里进行音频处理，如降噪、压缩等
             
             // 回调原始音频数据
@@ -248,6 +254,48 @@ public class AudioCaptureManager {
             if (audioDataCallback != null) {
                 audioDataCallback.onError("音频数据处理错误: " + e.getMessage());
             }
+        }
+    }
+    
+    /**
+     * 实时日志输出音频数据信息
+     */
+    private void logAudioData(byte[] audioData, int length) {
+        if (audioData == null || length <= 0) {
+            return;
+        }
+        
+        // 计算音频数据的统计信息
+        int maxAmplitude = 0;
+        long sum = 0;
+        
+        // 将字节数组转换为short数组进行分析
+        for (int i = 0; i < length - 1; i += 2) {
+            short sample = (short) ((audioData[i + 1] << 8) | (audioData[i] & 0xFF));
+            int amplitude = Math.abs(sample);
+            maxAmplitude = Math.max(maxAmplitude, amplitude);
+            sum += amplitude;
+        }
+        
+        int avgAmplitude = (int) (sum / (length / 2));
+        
+        // 计算音量百分比 (0-100%)
+        int volumePercent = (int) ((maxAmplitude / 32768.0) * 100);
+        
+        // 判断音频活动状态
+        String activityStatus = volumePercent > 10 ? "有声音" : "静音";
+        
+        // 实时日志输出
+        Log.i(TAG, String.format("[麦克风实时数据] 数据长度: %d bytes, 最大振幅: %d, 平均振幅: %d, 音量: %d%%, 状态: %s", 
+            length, maxAmplitude, avgAmplitude, volumePercent, activityStatus));
+            
+        // 每秒输出一次详细统计信息
+        if (System.currentTimeMillis() - lastLogTime > 1000) {
+            Log.d(TAG, String.format("[麦克风统计] 采样率: %d Hz, 声道: %s, 格式: 16位PCM, 缓冲区: %d bytes", 
+                SAMPLE_RATE, 
+                CHANNEL_CONFIG == AudioFormat.CHANNEL_IN_MONO ? "单声道" : "立体声", 
+                minBufferSize));
+            lastLogTime = System.currentTimeMillis();
         }
     }
     

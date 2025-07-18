@@ -42,6 +42,10 @@ public class ScreenCaptureManager {
     // WebP压缩配置
     private static final int WEBP_QUALITY = 80; // WebP质量 (0-100)
     
+    // 缩放配置
+    private static final float SCALE_RATIO = 0.5f; // 缩放比例 (0.1-1.0)
+    private static final boolean ENABLE_SCALING = true; // 是否启用缩放
+    
     // Log输出配置
     private static final boolean ENABLE_BASE64_LOG = false; // 禁用Base64图片数据日志输出
     
@@ -411,21 +415,38 @@ public class ScreenCaptureManager {
             long startTime = System.currentTimeMillis();
             
             // 转Bitmap
-            Bitmap bitmap = imageToBitmap(image);
+            Bitmap originalBitmap = imageToBitmap(image);
             image.close();
             
-            if (bitmap == null) {
+            if (originalBitmap == null) {
                 Log.w(TAG, "截图转Bitmap失败");
                 return;
             }
             
-            // 记录尺寸（在回收前）
-            int bitmapWidth = bitmap.getWidth();
-            int bitmapHeight = bitmap.getHeight();
+            // 记录原始尺寸
+            int originalWidth = originalBitmap.getWidth();
+            int originalHeight = originalBitmap.getHeight();
+            
+            // 缩放处理
+            Bitmap processedBitmap = originalBitmap;
+            int finalWidth = originalWidth;
+            int finalHeight = originalHeight;
+            
+            if (ENABLE_SCALING && SCALE_RATIO < 1.0f) {
+                finalWidth = (int) (originalWidth * SCALE_RATIO);
+                finalHeight = (int) (originalHeight * SCALE_RATIO);
+                
+                // 使用双线性插值缩放
+                processedBitmap = Bitmap.createScaledBitmap(originalBitmap, finalWidth, finalHeight, true);
+                originalBitmap.recycle(); // 回收原始bitmap
+                
+                Log.v(TAG, String.format("🔄 缩放处理: %dx%d -> %dx%d (%.1f%%)", 
+                    originalWidth, originalHeight, finalWidth, finalHeight, SCALE_RATIO * 100));
+            }
             
             // 压缩为WebP
-            byte[] webpData = compressToWebP(bitmap);
-            bitmap.recycle();
+            byte[] webpData = compressToWebP(processedBitmap);
+            processedBitmap.recycle();
             
             if (webpData == null || webpData.length == 0) {
                 Log.w(TAG, "WebP压缩失败");
@@ -437,18 +458,21 @@ public class ScreenCaptureManager {
             totalDataSize.addAndGet(webpData.length);
             
             // 详细帧处理日志
+            String scaleInfo = ENABLE_SCALING && SCALE_RATIO < 1.0f ? 
+                String.format(" [缩放: %dx%d->%dx%d]", originalWidth, originalHeight, finalWidth, finalHeight) : "";
+            
             Log.i(TAG, String.format(
-                "📷 Frame #%d: %dx%d -> WebP %.1fKB (处理耗时: %dms)", 
-                currentFrame, bitmapWidth, bitmapHeight, 
-                webpData.length / 1024.0f, processingTime
+                "📷 Frame #%d: %dx%d -> WebP %.1fKB%s (处理耗时: %dms)", 
+                currentFrame, finalWidth, finalHeight, 
+                webpData.length / 1024.0f, scaleInfo, processingTime
             ));
             
             // WebSocket实时推送
             if (enableWebSocketPush && webSocketManager != null && webSocketManager.isConnected()) {
-                webSocketManager.sendScreenData(webpData, bitmapWidth, bitmapHeight);
+                webSocketManager.sendScreenData(webpData, finalWidth, finalHeight);
                 Log.d(TAG, String.format(
-                    "🌐 WebSocket发送: Frame #%d | %.1fKB -> %s", 
-                    currentFrame, webpData.length / 1024.0f, RDTDefine.WS_SERVER_URL
+                    "🌐 WebSocket发送: Frame #%d | %.1fKB (%dx%d) -> %s", 
+                    currentFrame, webpData.length / 1024.0f, finalWidth, finalHeight, RDTDefine.WS_SERVER_URL
                 ));
             }
             
