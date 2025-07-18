@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<network-security-config>
+<!--    <domain-config cleartextTrafficPermitted="true">-->
+<!--        &lt;!&ndash; 允许特定域名的明文 &ndash;&gt;-->
+<!--        <domain includeSubdomains="true">example.com</domain>-->
+<!--    </domain-config>-->
+    <base-config cleartextTrafficPermitted="true">
+    </base-config>
+</network-security-config>
