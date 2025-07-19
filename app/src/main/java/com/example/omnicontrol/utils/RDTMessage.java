@@ -1,222 +1,212 @@
 package com.example.omnicontrol.utils;
 
 import java.io.ByteArrayOutputStream;
-import java.io.DataOutputStream;
-import java.io.ByteArrayInputStream;
-import java.io.DataInputStream;
 import java.io.IOException;
+import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
 import java.nio.charset.StandardCharsets;
 
 /**
- * RDT消息协议 - Java版本
- * 用于Android与远程服务器之间的二进制数据通信
- * 对应C++版本的RDTMessage类
+ * RDT消息封装类
+ * 支持二进制数据的读写操作，用于RDT协议消息的构建和解析
  */
 public class RDTMessage {
-    private ByteArrayOutputStream dataStream;
-    private DataOutputStream writer;
-    private ByteArrayInputStream inputStream;
-    private DataInputStream reader;
-    private int readOffset = 0;
+    private ByteArrayOutputStream outputStream;
+    private ByteBuffer readBuffer;
+    private int readPosition = 0;
     
+    /**
+     * 构造函数 - 用于写入数据
+     */
     public RDTMessage() {
-        dataStream = new ByteArrayOutputStream();
-        writer = new DataOutputStream(dataStream);
+        this.outputStream = new ByteArrayOutputStream();
     }
     
+    /**
+     * 构造函数 - 用于读取数据
+     * @param data 要解析的字节数组
+     */
     public RDTMessage(byte[] data) {
-        inputStream = new ByteArrayInputStream(data);
-        reader = new DataInputStream(inputStream);
+        this.readBuffer = ByteBuffer.wrap(data).order(ByteOrder.LITTLE_ENDIAN);
+        this.readPosition = 0;
     }
     
-    // 写入操作符重载 (<<)
-    public RDTMessage writeString(String value) {
-        try {
-            byte[] bytes = value.getBytes(StandardCharsets.UTF_8);
-            writeInt(bytes.length);
-            writer.write(bytes);
-        } catch (IOException e) {
-            e.printStackTrace();
-        }
-        return this;
-    }
-    
-    public RDTMessage writeByteArray(byte[] value) {
-        try {
-            writeInt(value.length);
-            writer.write(value);
-        } catch (IOException e) {
-            e.printStackTrace();
-        }
-        return this;
-    }
-    
+    /**
+     * 写入整数（4字节，小端序）
+     * @param value 整数值
+     * @return this，支持链式调用
+     */
     public RDTMessage writeInt(int value) {
         try {
-            for (int i = 0; i < 4; i++) {
-                writer.writeByte((value >> (i * 8)) & 0xFF);
-            }
-        }
-        catch (IOException e) {
-            e.printStackTrace();
-        }
-        return this;
-    }
-    
-    public RDTMessage writeFloat(float value) {
-        try {
-            writer.writeFloat(value);
+            ByteBuffer buffer = ByteBuffer.allocate(4).order(ByteOrder.LITTLE_ENDIAN);
+            buffer.putInt(value);
+            outputStream.write(buffer.array());
         } catch (IOException e) {
-            e.printStackTrace();
+            throw new RuntimeException("写入整数失败", e);
         }
         return this;
     }
     
-    public RDTMessage writeRawData(byte[] data) {
-        try {
-            writeInt(data.length);
-            writer.write(data);
-        } catch (IOException e) {
-            e.printStackTrace();
+    /**
+     * 写入字符串（UTF-8编码，带长度前缀）
+     * @param str 字符串
+     * @return this，支持链式调用
+     */
+    public RDTMessage writeString(String str) {
+        if (str == null) {
+            writeInt(0);
+            return this;
         }
+        
+        byte[] strBytes = str.getBytes(StandardCharsets.UTF_8);
+        writeInt(strBytes.length);
+        writeRawBytes(strBytes);
         return this;
     }
     
+    /**
+     * 写入字节数组（带长度前缀）
+     * @param data 字节数组
+     * @return this，支持链式调用
+     */
+    public RDTMessage writeByteArray(byte[] data) {
+        if (data == null) {
+            writeInt(0);
+            return this;
+        }
+        
+        writeInt(data.length);
+        writeRawBytes(data);
+        return this;
+    }
+    
+    /**
+     * 写入原始字节（不带长度前缀）
+     * @param data 字节数组
+     * @return this，支持链式调用
+     */
     public RDTMessage writeRawBytes(byte[] data) {
-        try {
-            writer.write(data);
-        } catch (IOException e) {
-            e.printStackTrace();
+        if (data != null && data.length > 0) {
+            try {
+                outputStream.write(data);
+            } catch (IOException e) {
+                throw new RuntimeException("写入字节数组失败", e);
+            }
         }
         return this;
     }
     
-    // 读取操作符重载 (>>)
-    public String readString() {
-        try {
-            int length = readInt();
-            if (length > 0) {
-                byte[] bytes = new byte[length];
-                reader.readFully(bytes);
-                return new String(bytes, StandardCharsets.UTF_8);
-            }
-        } catch (IOException e) {
-            e.printStackTrace();
-        }
-        return "";
+    /**
+     * 写入原始数据（writeRawBytes的别名，保持兼容性）
+     * @param data 字节数组
+     * @return this，支持链式调用
+     */
+    public RDTMessage writeRawData(byte[] data) {
+        return writeRawBytes(data);
     }
     
-    public byte[] readByteArray() {
-        try {
-            int length = readInt();
-            if (length > 0) {
-                byte[] bytes = new byte[length];
-                reader.readFully(bytes);
-                return bytes;
-            }
-        } catch (IOException e) {
-            e.printStackTrace();
-        }
-        return new byte[0];
-    }
-    
+    /**
+     * 读取整数（4字节，小端序）
+     * @return 整数值
+     */
     public int readInt() {
-        int value = 0;
-        try {
-            for (int i = 0; i < 4; i++) {
-                int byte_value = reader.readByte() & 0xFF;
-                value += byte_value << (i * 8);
-            }
+        if (readBuffer == null || readBuffer.remaining() < 4) {
+            throw new RuntimeException("读取整数失败：数据不足");
         }
-        catch (IOException e) {
-            e.printStackTrace();
-        }
-        return value;
+        return readBuffer.getInt();
     }
     
-    public float readFloat() {
-        try {
-            return reader.readFloat();
-        } catch (IOException e) {
-            e.printStackTrace();
+    /**
+     * 读取字符串（UTF-8编码，带长度前缀）
+     * @return 字符串
+     */
+    public String readString() {
+        int length = readInt();
+        if (length == 0) {
+            return "";
         }
-        return 0.0f;
+        
+        if (readBuffer.remaining() < length) {
+            throw new RuntimeException("读取字符串失败：数据不足");
+        }
+        
+        byte[] strBytes = new byte[length];
+        readBuffer.get(strBytes);
+        return new String(strBytes, StandardCharsets.UTF_8);
     }
     
-    public byte[] readRawData() {
-        try {
-            int length = readInt();
-            if (length > 0) {
-                byte[] data = new byte[length];
-                reader.readFully(data);
-                return data;
-            }
-        } catch (IOException e) {
-            e.printStackTrace();
-        }
-        return new byte[0];
-    }
-    
-    // 获取所有数据
-    public byte[] getData() {
-        try {
-            writer.flush();
-            return dataStream.toByteArray();
-        } catch (IOException e) {
-            e.printStackTrace();
+    /**
+     * 读取字节数组（带长度前缀）
+     * @return 字节数组
+     */
+    public byte[] readByteArray() {
+        int length = readInt();
+        if (length == 0) {
             return new byte[0];
         }
-    }
-    
-    // 清空数据
-    public void clear() {
-        try {
-            dataStream.reset();
-            readOffset = 0;
-        } catch (Exception e) {
-            e.printStackTrace();
+        
+        if (readBuffer.remaining() < length) {
+            throw new RuntimeException("读取字节数组失败：数据不足");
         }
+        
+        byte[] data = new byte[length];
+        readBuffer.get(data);
+        return data;
     }
     
-    // 获取数据大小
-    public int size() {
-        return dataStream.size();
+    /**
+     * 读取剩余的所有字节
+     * @return 字节数组
+     */
+    public byte[] readRemainingBytes() {
+        if (readBuffer == null) {
+            return new byte[0];
+        }
+        
+        int remaining = readBuffer.remaining();
+        if (remaining == 0) {
+            return new byte[0];
+        }
+        
+        byte[] data = new byte[remaining];
+        readBuffer.get(data);
+        return data;
     }
     
-    // 关闭流
+    /**
+     * 获取构建的数据
+     * @return 字节数组
+     */
+    public byte[] getData() {
+        if (outputStream != null) {
+            return outputStream.toByteArray();
+        }
+        return new byte[0];
+    }
+    
+    /**
+     * 获取剩余可读字节数
+     * @return 剩余字节数
+     */
+    public int remaining() {
+        if (readBuffer != null) {
+            return readBuffer.remaining();
+        }
+        return 0;
+    }
+    
+    /**
+     * 关闭并释放资源
+     */
     public void close() {
-        try {
-            if (writer != null) writer.close();
-            if (dataStream != null) dataStream.close();
-            if (reader != null) reader.close();
-            if (inputStream != null) inputStream.close();
-        } catch (IOException e) {
-            e.printStackTrace();
+        if (outputStream != null) {
+            try {
+                outputStream.close();
+            } catch (IOException e) {
+                // 忽略关闭异常
+            }
+            outputStream = null;
         }
-    }
-    
-    // 测试方法
-    public static void test() {
-        // 写入测试
-        RDTMessage message = new RDTMessage();
-        message.writeString("Hello, World!")
-               .writeInt(123)
-               .writeFloat(45.67f);
-               
-        byte[] data = message.getData();
-        System.out.println("Generated data size: " + data.length);
-        
-        // 读取测试
-        RDTMessage readMessage = new RDTMessage(data);
-        String str = readMessage.readString();
-        int intVal = readMessage.readInt();
-        float floatVal = readMessage.readFloat();
-        
-        System.out.println("String: " + str);
-        System.out.println("Int: " + intVal);
-        System.out.println("Float: " + floatVal);
-        
-        message.close();
-        readMessage.close();
+        readBuffer = null;
     }
 }

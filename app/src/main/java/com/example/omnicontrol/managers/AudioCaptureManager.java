@@ -12,6 +12,13 @@ import android.util.Log;
 
 import androidx.core.app.ActivityCompat;
 
+// WebSocket和RDT协议相关导入
+import com.example.omnicontrol.utils.WebSocketManager;
+import com.example.omnicontrol.utils.RDTMessage;
+import com.example.omnicontrol.utils.RDTDefine;
+
+import java.util.concurrent.atomic.AtomicLong;
+
 /**
  * 音频捕获管理器
  * 负责录制麦克风音频并实时传输
@@ -24,6 +31,9 @@ public class AudioCaptureManager {
     private static final int CHANNEL_CONFIG = AudioFormat.CHANNEL_IN_MONO; // 单声道
     private static final int AUDIO_FORMAT = AudioFormat.ENCODING_PCM_16BIT; // 16位PCM
     
+    // 音频包发送间隔（40ms）
+    private static final long AUDIO_SEND_INTERVAL = 40;
+    
     private Context context;
     private AudioRecord audioRecord;
     private int minBufferSize;
@@ -33,8 +43,21 @@ public class AudioCaptureManager {
     private Handler recordingHandler;
     private volatile boolean isRecording = false;
     
+    // WebSocket和RDT协议相关
+    private WebSocketManager webSocketManager; // 从PermissionManager获取
+    private boolean enableWebSocketPush = false;
+    private Handler audioSendHandler;
+    private Runnable audioSendRunnable;
+    private byte[] latestAudioData; // 最新的音频数据
+    private final Object audioDataLock = new Object(); // 音频数据锁
+    
+    // 统计信息
+    private AtomicLong audioPacketCount = new AtomicLong(0);
+    private AtomicLong totalAudioDataSize = new AtomicLong(0);
+    
     // 日志输出时间控制
     private long lastLogTime = 0;
+    private long lastStatsTime = 0;
     
     // 数据回调接口
     public interface AudioDataCallback {
@@ -47,6 +70,17 @@ public class AudioCaptureManager {
     public AudioCaptureManager(Context context) {
         this.context = context;
         initAudioRecord();
+    }
+    
+    /**
+     * 设置WebSocket管理器（从PermissionManager获取）
+     */
+    public void setWebSocketManager(WebSocketManager webSocketManager) {
+        this.webSocketManager = webSocketManager;
+        if (webSocketManager != null && webSocketManager.isConnected()) {
+            enableWebSocketPush = true;
+            Log.i(TAG, "🌐 音频管理器连接到WebSocket");
+        }
     }
     
     /**
@@ -102,8 +136,147 @@ public class AudioCaptureManager {
     }
     
     /**
-     * 开始录音
+     * 启用WebSocket推送（像屏幕共享一样自动开始后台传输）
      */
+    public void enableWebSocketPush() {
+        Log.i(TAG, "🎤 启用音频WebSocket推送 - 开始后台传输");
+        
+        // 设置推送标记
+        enableWebSocketPush = true;
+        
+        // 自动开始录音（如果还未开始）
+        if (!isRecording) {
+            startRecording();
+            Log.i(TAG, "🎤 自动开始录音采集");
+        }
+        
+        // 启动后台传输定时器（每40ms）
+        startAudioSendTimer();
+        
+        Log.i(TAG, "📡 音频后台传输已启动 - 40ms间隔");
+    }
+    
+    /**
+     * 禁用WebSocket推送
+     */
+    public void disableWebSocketPush() {
+        enableWebSocketPush = false;
+        stopAudioSendTimer();
+        Log.i(TAG, "🔇 禁用音频WebSocket推送");
+    }
+    
+    /**
+     * 启动音频定时发送器（每40ms发送一次）
+     */
+    private void startAudioSendTimer() {
+        if (audioSendHandler != null) {
+            return;
+        }
+        
+        audioSendHandler = new Handler(android.os.Looper.getMainLooper());
+        audioSendRunnable = new Runnable() {
+            @Override
+            public void run() {
+                // 详细检查每个条件状态
+                boolean recording = isRecording;
+                boolean pushEnabled = enableWebSocketPush;
+                boolean managerExists = webSocketManager != null;
+                boolean socketConnected = managerExists && webSocketManager.isConnected();
+                
+                // 每5秒输出一次详细状态（避免日志过多）
+                long currentTime = System.currentTimeMillis();
+                if (currentTime - lastLogTime > 5000) {
+                    Log.i(TAG, String.format("📊 音频推送状态检查 - 录音:%s, 推送开关:%s, 管理器:%s, WebSocket:%s", 
+                        recording ? "✅进行中" : "❌已停止",
+                        pushEnabled ? "✅启用" : "❌禁用", 
+                        managerExists ? "✅存在" : "❌null",
+                        socketConnected ? "✅连接" : "❌断开"
+                    ));
+                    lastLogTime = currentTime;
+                }
+                
+                // 发送音频包（仅在所有条件满足时）
+                if (recording && pushEnabled && managerExists && socketConnected) {
+                    sendAudioPacket();
+                } else if (recording) {
+                    // 输出未推送的原因（仅在录音进行但无法推送时）
+                    if (!pushEnabled) Log.v(TAG, "⏸️ 音频推送被禁用");
+                    if (!managerExists) Log.v(TAG, "⏸️ 音频WebSocket管理器为null");
+                    if (!socketConnected) Log.v(TAG, "⏸️ 音频WebSocket未连接");
+                }
+                
+                // 继续下一次发送
+                audioSendHandler.postDelayed(this, AUDIO_SEND_INTERVAL);
+            }
+        };
+        
+        audioSendHandler.postDelayed(audioSendRunnable, AUDIO_SEND_INTERVAL);
+        Log.i(TAG, "⏰ 音频定时发送器启动 - 间隔: " + AUDIO_SEND_INTERVAL + "ms");
+    }
+    
+    /**
+     * 停止音频定时发送器
+     */
+    private void stopAudioSendTimer() {
+        if (audioSendHandler != null && audioSendRunnable != null) {
+            audioSendHandler.removeCallbacks(audioSendRunnable);
+            audioSendHandler = null;
+            audioSendRunnable = null;
+            Log.i(TAG, "⏸️ 音频定时发送器已停止");
+        }
+    }
+    
+    /**
+     * 发送音频数据包（通过RDT协议+WebSocket）
+     */
+    private void sendAudioPacket() {
+        synchronized (audioDataLock) {
+            if (latestAudioData != null && enableWebSocketPush) {
+                // 发送最新的音频数据
+                byte[] dataToSend = new byte[latestAudioData.length];
+                System.arraycopy(latestAudioData, 0, dataToSend, 0, latestAudioData.length);
+                sendAudioData(dataToSend);
+            }
+        }
+    }
+    
+    /**
+     * 发送音频数据（使用WebSocketManager的RDTProtocol）
+     */
+    private void sendAudioData(byte[] audioData) {
+        if (webSocketManager == null || !webSocketManager.isConnected()) {
+            Log.v(TAG, "⚠️ 音频数据发送被跳过 - WebSocket未连接");
+            return;
+        }
+        
+        try {
+            // 使用WebSocketManager的sendAudioData方法，已集成RDTProtocol
+            webSocketManager.sendAudioData(audioData);
+            
+            // 更新统计数据
+            long packetNum = audioPacketCount.incrementAndGet();
+            totalAudioDataSize.addAndGet(audioData.length);
+            
+            // 🎤 每个音频包都输出日志（每40ms一次）- 像屏幕共享一样
+            Log.i(TAG, String.format("🎤 音频发送 Frame #%d | 大小: %d bytes | 采样率: %d Hz | WebSocket: ✓ | 时间: %dms", 
+                   packetNum, audioData.length, SAMPLE_RATE, System.currentTimeMillis() % 100000));
+            
+            // 每50包输出一次统计数据（约2秒）
+            if (packetNum % 50 == 0) {
+                long currentTime = System.currentTimeMillis();
+                if (lastStatsTime > 0) {
+                    float timeDiff = (currentTime - lastStatsTime) / 1000.0f;
+                    float packetsPerSec = 50.0f / timeDiff;
+                    Log.i(TAG, String.format("📡 音频发送统计 | 包数: %d | 频率: %.1f包/秒 | 累计: %.1f KB", 
+                           packetNum, packetsPerSec, totalAudioDataSize.get() / 1024.0f));
+                }
+                lastStatsTime = currentTime;
+            }
+            
+        } catch (Exception e) {
+            Log.e(TAG, "发送音频数据失败: " + e.getMessage(), e);
+        }
+    }
     public void startRecording() {
         if (isRecording) {
             Log.w(TAG, "Audio recording already started");
@@ -129,6 +302,10 @@ public class AudioCaptureManager {
         }
         
         try {
+            // 启用WebSocket推送（如果WebSocket管理器可用）
+            if (webSocketManager != null && webSocketManager.isConnected()) {
+                enableWebSocketPush();
+            }    
             // 启动录音线程
             startRecordingThread();
             
@@ -136,7 +313,7 @@ public class AudioCaptureManager {
             audioRecord.startRecording();
             isRecording = true;
             
-            Log.i(TAG, "Audio recording started successfully");
+            Log.i(TAG, "🎤 音频录制启动成功 - WebSocket推送已初始化");
             
         } catch (Exception e) {
             Log.e(TAG, "Failed to start audio recording", e);
@@ -241,6 +418,14 @@ public class AudioCaptureManager {
             
             // 可以在这里进行音频处理，如降噪、压缩等
             
+            // 保存最新音频数据供定时发送使用
+            synchronized (audioDataLock) {
+                if (latestAudioData == null || latestAudioData.length != length) {
+                    latestAudioData = new byte[length];
+                }
+                System.arraycopy(audioData, 0, latestAudioData, 0, length);
+            }
+            
             // 回调原始音频数据
             if (audioDataCallback != null) {
                 // 创建实际长度的数据副本
@@ -317,18 +502,31 @@ public class AudioCaptureManager {
     }
     
     /**
-     * 释放资源
+     * 释放资源（包括WebSocket和AudioRecord）
      */
     public void release() {
         stopRecording();
         
+        // 停止音频定时发送器
+        disableWebSocketPush();
+        
+        // 不需要断开WebSocket连接，因为它由PermissionManager管理
+        
+        // 释放AudioRecord资源
         if (audioRecord != null) {
             try {
                 audioRecord.release();
                 audioRecord = null;
+                Log.i(TAG, "🎤 AudioRecord资源已释放");
             } catch (Exception e) {
                 Log.e(TAG, "Error releasing AudioRecord", e);
             }
         }
+        
+        // 重置统计信息
+        audioPacketCount.set(0);
+        totalAudioDataSize.set(0);
+        
+        Log.i(TAG, "🗺️ AudioCaptureManager资源全部释放完成");
     }
 }

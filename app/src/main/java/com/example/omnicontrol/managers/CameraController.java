@@ -3,11 +3,14 @@ package com.example.omnicontrol.managers;
 import android.Manifest;
 import android.content.Context;
 import android.content.pm.PackageManager;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
 import android.graphics.ImageFormat;
 import android.hardware.camera2.CameraCaptureSession;
 import android.hardware.camera2.CameraCharacteristics;
 import android.hardware.camera2.CameraDevice;
 import android.hardware.camera2.CameraManager;
+import android.hardware.camera2.CaptureFailure;
 import android.hardware.camera2.CaptureRequest;
 import android.hardware.camera2.TotalCaptureResult;
 import android.media.Image;
@@ -28,6 +31,14 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
+import java.util.concurrent.Semaphore;
+import java.util.concurrent.TimeUnit;
+
+// WebSocket实时推送相关导入
+import com.example.omnicontrol.utils.WebSocketManager;
+import com.example.omnicontrol.utils.RDTDefine;
+import com.example.omnicontrol.utils.RDTMessage;
+import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * 摄像头控制器
@@ -55,7 +66,26 @@ public class CameraController {
     
     // 日志输出时间控制
     private long lastLogTime = 0;
-    private int frameCount = 0;
+    
+    // WebSocket实时推送（从PermissionManager获取）
+    private WebSocketManager webSocketManager;
+    private volatile boolean enableWebSocketPush = false; // 是否启用WebSocket推送
+    private byte[] latestImageData; // 最新的图像数据
+    private final Object imageDataLock = new Object(); // 图像数据锁
+    
+    // 定时器配置（与ScreenCaptureManager一致）
+    private static final int TARGET_FPS = 25;
+    private static final long CAPTURE_INTERVAL_MS = 1000 / TARGET_FPS; // 40ms
+    private Handler captureHandler;
+    private Runnable captureRunnable;
+    
+    // WebP压缩配置
+    private static final int WEBP_QUALITY = 80; // WebP质量 (0-100)
+    
+    // 统计数据
+    private AtomicLong frameCount = new AtomicLong(0);
+    private AtomicLong totalDataSize = new AtomicLong(0);
+    private long captureStartTime;
     
     // 数据回调接口
     public interface CameraDataCallback {
@@ -63,6 +93,7 @@ public class CameraController {
         void onError(String error);
     }
     
+    // 数据回调（保持兼容性）
     private CameraDataCallback cameraDataCallback;
     
     public CameraController(Context context) {
@@ -70,8 +101,16 @@ public class CameraController {
         this.cameraManager = (android.hardware.camera2.CameraManager) 
             context.getSystemService(Context.CAMERA_SERVICE);
         
+        // 初始化后台线程
         startBackgroundThread();
+        
+        // 选择摄像头
         initCamera();
+        
+        // 初始化定时采集器
+        initCaptureTimer();
+        
+        Log.i(TAG, "📹 CameraController初始化完成 - WebSocket+RDT协议模式");
     }
     
     /**
@@ -174,16 +213,57 @@ public class CameraController {
     }
     
     /**
-     * 启动摄像头
+     * 设置WebSocket管理器（从PermissionManager获取）
+     */
+    public void setWebSocketManager(WebSocketManager webSocketManager) {
+        this.webSocketManager = webSocketManager;
+        if (webSocketManager != null && webSocketManager.isConnected()) {
+            enableWebSocketPush = true;
+            Log.i(TAG, "🌐 摄像头管理器连接到WebSocket");
+        }
+    }
+    
+    /**
+     * 启用WebSocket推送（像屏幕共享一样自动开始后台传输）
+     */
+    public void enableWebSocketPush() {
+        Log.i(TAG, "📷 启用摄像头WebSocket推送 - 开始后台传输");
+        
+        // 设置推送标记
+        enableWebSocketPush = true;
+        
+        // 自动开始摄像头（如果还未开始）
+        if (!isCameraOpen) {
+            startCamera();
+            Log.i(TAG, "📷 自动开始摄像头采集");
+        }
+        
+        // 启动后台传输定时器（每40ms）
+        startCaptureTimer();
+        
+        Log.i(TAG, "📡 摄像头后台传输已启动 - 40ms间隔");
+    }
+    
+    /**
+     * 禁用WebSocket推送
+     */
+    public void disableWebSocketPush() {
+        enableWebSocketPush = false;
+        stopCaptureTimer();
+        Log.i(TAG, "📷 禁用摄像头WebSocket推送");
+    }
+    
+    /**
+     * 启动摄像头（WebSocket+RDT协议模式）
      */
     public void startCamera() {
         if (isCameraOpen) {
-            Log.w(TAG, "Camera already opened");
+            Log.w(TAG, "📹 摄像头已开启");
             return;
         }
         
         if (cameraId == null) {
-            Log.e(TAG, "No camera available");
+            Log.e(TAG, "❌ 没有可用的摄像头");
             if (cameraDataCallback != null) {
                 cameraDataCallback.onError("没有可用的摄像头");
             }
@@ -193,7 +273,7 @@ public class CameraController {
         // 检查权限
         if (ActivityCompat.checkSelfPermission(context, Manifest.permission.CAMERA) 
             != PackageManager.PERMISSION_GRANTED) {
-            Log.e(TAG, "Camera permission not granted");
+            Log.e(TAG, "❌ 摄像头权限未授予");
             if (cameraDataCallback != null) {
                 cameraDataCallback.onError("摄像头权限未授予");
             }
@@ -201,6 +281,8 @@ public class CameraController {
         }
         
         try {
+            Log.i(TAG, "📹 启动摄像头 - WebSocket+RDT协议模式");
+            
             // 创建ImageReader
             imageReader = ImageReader.newInstance(
                 previewSize.getWidth(), 
@@ -213,8 +295,30 @@ public class CameraController {
             // 打开摄像头
             cameraManager.openCamera(cameraId, cameraStateCallback, backgroundHandler);
             
+            // 连接WebSocket（添加详细诊断）
+            if (webSocketManager != null) {
+                Log.i(TAG, "🌐 WebSocket管理器状态 - 当前连接: " + webSocketManager.isConnected());
+                if (!webSocketManager.isConnected()) {
+                    Log.i(TAG, "🔗 开始连接摄像头WebSocket: " + RDTDefine.WS_SERVER_URL);
+                    webSocketManager.connect();
+                    
+                    // 等待连接结果（最多3秒）
+                    new Handler(android.os.Looper.getMainLooper()).postDelayed(() -> {
+                        boolean connected = webSocketManager.isConnected();
+                        Log.i(TAG, "🔍 WebSocket连接检查结果: " + (connected ? "✅ 成功" : "❌ 失败"));
+                        if (!connected) {
+                            Log.e(TAG, "⚠️ WebSocket连接失败，摄像头数据将无法推送");
+                        }
+                    }, 3000);
+                } else {
+                    Log.i(TAG, "✅ WebSocket已连接，摄像头数据推送就绪");
+                }
+            } else {
+                Log.e(TAG, "❌ WebSocket管理器为null，无法建立连接");
+            }
+            
         } catch (Exception e) {
-            Log.e(TAG, "Failed to start camera", e);
+            Log.e(TAG, "❌ 启动摄像头失败", e);
             if (cameraDataCallback != null) {
                 cameraDataCallback.onError("启动摄像头失败: " + e.getMessage());
             }
@@ -264,7 +368,11 @@ public class CameraController {
                 cameraDevice = camera;
                 isCameraOpen = true;
                 createCaptureSession();
-                Log.i(TAG, "Camera opened successfully");
+                
+                // 启动定时采集（每40ms）
+                startCaptureTimer();
+                
+                Log.i(TAG, "📹 摄像头打开成功 - 开始定时采集（40ms间隔）");
             }
             
             @Override
@@ -381,21 +489,68 @@ public class CameraController {
         };
     
     /**
-     * 处理捕获的图像
+     * 处理捕获的图像（完全复用ScreenCaptureManager模式）
      */
     private void processImage(Image image) {
         try {
+            long startTime = System.currentTimeMillis();
+            
             // 获取JPEG数据
             ByteBuffer buffer = image.getPlanes()[0].getBuffer();
-            byte[] imageData = new byte[buffer.remaining()];
-            buffer.get(imageData);
+            byte[] jpegData = new byte[buffer.remaining()];
+            buffer.get(jpegData);
             
-            // 实时日志输出图像数据信息
-            logImageData(image, imageData);
+            // 转换为Bitmap
+            Bitmap bitmap = android.graphics.BitmapFactory.decodeByteArray(jpegData, 0, jpegData.length);
+            if (bitmap == null) {
+                Log.w(TAG, "JPEG转Bitmap失败");
+                return;
+            }
             
-            // 回调数据
+            // 记录原始尺寸
+            int originalWidth = bitmap.getWidth();
+            int originalHeight = bitmap.getHeight();
+            
+            // 压缩为WebP（完全复用ScreenCaptureManager的compressToWebP逻辑）
+            byte[] webpData = compressToWebP(bitmap);
+            bitmap.recycle();
+            
+            if (webpData == null || webpData.length == 0) {
+                Log.w(TAG, "WebP压缩失败");
+                return;
+            }
+            
+            long processingTime = System.currentTimeMillis() - startTime;
+            long currentFrame = frameCount.incrementAndGet();
+            totalDataSize.addAndGet(webpData.length);
+            
+            // 详细帧处理日志（完全复用ScreenCaptureManager的日志格式）
+            Log.i(TAG, String.format(
+                "📷 Camera Frame #%d: %dx%d -> WebP %.1fKB (处理耗时: %dms)", 
+                currentFrame, originalWidth, originalHeight, 
+                webpData.length / 1024.0f, processingTime
+            ));
+            
+            // 记录实时日志
+            logImageData(image, webpData);
+            
+            // 保存最新图像数据供定时发送使用
+            synchronized (imageDataLock) {
+                latestImageData = webpData;
+            }
+            
+            // WebSocket实时推送（使用CS_CAMERA信号）
+            if (enableWebSocketPush && webSocketManager != null && webSocketManager.isConnected()) {
+                sendCameraData(webpData);
+                Log.d(TAG, String.format(
+                    "🌐 WebSocket发送: Camera Frame #%d | %.1fKB (%dx%d) -> %s", 
+                    currentFrame, webpData.length / 1024.0f, originalWidth, originalHeight, RDTDefine.WS_SERVER_URL
+                ));
+            }
+            
+            // 回调数据（保持兼容性）
             if (cameraDataCallback != null) {
-                cameraDataCallback.onCameraData(imageData);
+                cameraDataCallback.onCameraData(webpData);
             }
             
         } catch (Exception e) {
@@ -411,7 +566,7 @@ public class CameraController {
      */
     private void logImageData(Image image, byte[] imageData) {
         try {
-            frameCount++;
+            frameCount.incrementAndGet();
             
             // 获取图像基本信息
             int width = image.getWidth();
@@ -445,11 +600,11 @@ public class CameraController {
             
             // 每秒输出一次详细统计信息
             if (System.currentTimeMillis() - lastLogTime > 1000) {
-                float fps = frameCount / ((System.currentTimeMillis() - lastLogTime) / 1000.0f);
+                float fps = frameCount.get() / ((System.currentTimeMillis() - lastLogTime) / 1000.0f);
                 Log.d(TAG, String.format("[摄像头统计] 帧率: %.1f fps, 总帧数: %d, 摄像头ID: %s, 预览尺寸: %s", 
                     fps, frameCount, cameraId, previewSize != null ? previewSize.toString() : "未设置"));
                 lastLogTime = System.currentTimeMillis();
-                frameCount = 0;
+                frameCount.set(0);
             }
             
         } catch (Exception e) {
@@ -489,10 +644,198 @@ public class CameraController {
     }
     
     /**
+     * 初始化WebSocket管理器（完全复用ScreenCaptureManager模式）
+     */
+    private void initWebSocket() {
+        webSocketManager = new WebSocketManager(context);
+        
+        // 设置WebSocket连接状态监听器
+        webSocketManager.setConnectionStateListener(new WebSocketManager.ConnectionStateListener() {
+            @Override
+            public void onConnectionStateChanged(int state) {
+                Log.i(TAG, "🌐 摄像头WebSocket状态变化: " + RDTDefine.getConnectionStateDescription(state));
+                
+                // 如果正在采集且WebSocket连接成功，重置统计数据
+                if (state == RDTDefine.ConnectionState.CONNECTED && isCameraOpen) {
+                    webSocketManager.resetStats();
+                }
+            }
+            
+            @Override
+            public void onScreenDataSent(long frameNumber, int dataSize) {
+                // WebSocket发送成功的回调
+            }
+            
+            @Override
+            public void onError(String error) {
+                Log.e(TAG, "❌ 摄像头WebSocket错误: " + error);
+                if (cameraDataCallback != null) {
+                    cameraDataCallback.onError("WebSocket错误: " + error);
+                }
+            }
+        });
+        
+        Log.d(TAG, "🌐 摄像头WebSocket管理器初始化完成");
+    }
+    
+    /**
+     * 初始化定时采集器（每40ms采集一帧）
+     */
+    private void initCaptureTimer() {
+        if (captureHandler == null) {
+            captureHandler = new Handler(android.os.Looper.getMainLooper());
+        }
+        
+        captureRunnable = new Runnable() {
+            @Override
+            public void run() {
+                // 发送最新的摄像头数据（如果有的话）
+                synchronized (imageDataLock) {
+                    if (latestImageData != null && enableWebSocketPush) {
+                        sendCameraData(latestImageData);
+                    }
+                }
+                
+                // 继续下一次发送
+                if (enableWebSocketPush && captureHandler != null) {
+                    captureHandler.postDelayed(this, CAPTURE_INTERVAL_MS);
+                }
+            }
+        };
+        
+        Log.d(TAG, "📹 定时采集器初始化完成 (每40ms)");
+    }
+    
+    /**
+     * 采集摄像头帧并通过WebSocket发送（完全复用ScreenCaptureManager模式）
+     */
+    private void captureCameraFrame() {
+        if (captureSession == null || !isCameraOpen) {
+            return;
+        }
+        
+        try {
+            // 创建单次拍照请求
+            CaptureRequest.Builder captureBuilder = cameraDevice.createCaptureRequest(CameraDevice.TEMPLATE_STILL_CAPTURE);
+            captureBuilder.addTarget(imageReader.getSurface());
+            
+            // 设置自动对焦和自动曝光
+            captureBuilder.set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_PICTURE);
+            captureBuilder.set(CaptureRequest.CONTROL_AE_MODE, CaptureRequest.CONTROL_AE_MODE_ON_AUTO_FLASH);
+            
+            // 执行单次拍照
+            captureSession.capture(captureBuilder.build(), new CameraCaptureSession.CaptureCallback() {
+                @Override
+                public void onCaptureCompleted(@NonNull CameraCaptureSession session,
+                                                @NonNull CaptureRequest request,
+                                                @NonNull TotalCaptureResult result) {
+                    // 拍照完成，等待imageAvailableListener处理
+                }
+                
+                @Override
+                public void onCaptureFailed(@NonNull CameraCaptureSession session,
+                                             @NonNull CaptureRequest request,
+                                             @NonNull CaptureFailure failure) {
+                    Log.w(TAG, "⚠️ 摄像头拍照失败: " + failure.getReason());
+                }
+            }, backgroundHandler);
+            
+        } catch (Exception e) {
+            Log.e(TAG, "❌ 摄像头拍照失败", e);
+        }
+    }
+    
+    /**
+     * 压缩Bitmap为WebP格式（完全复用ScreenCaptureManager逻辑）
+     */
+    private byte[] compressToWebP(Bitmap bitmap) {
+        try {
+            ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
+            boolean success = bitmap.compress(Bitmap.CompressFormat.WEBP, WEBP_QUALITY, outputStream);
+            
+            if (!success) {
+                Log.w(TAG, "WebP压缩失败");
+                return null;
+            }
+            
+            return outputStream.toByteArray();
+            
+        } catch (Exception e) {
+            Log.e(TAG, "WebP压缩异常", e);
+            return null;
+        }
+    }
+    
+    /**
+     * 发送摄像头数据（使用WebSocketManager的RDTProtocol）
+     */
+    private void sendCameraData(byte[] webpData) {
+        if (webSocketManager == null || !webSocketManager.isConnected()) {
+            Log.v(TAG, "⚠️ 摄像头数据发送被跳过 - WebSocket未连接");
+            return;
+        }
+        
+        try {
+            // 使用WebSocketManager的sendCameraData方法，已集成RDTProtocol
+            webSocketManager.sendCameraData(webpData);
+            
+            // 更新统计数据
+            long frameNum = frameCount.incrementAndGet();
+            totalDataSize.addAndGet(webpData.length);
+            
+            // 📷 每个摄像头帧都输出日志（每40ms一次）- 像屏幕共享一样
+            Log.i(TAG, String.format("📷 摄像头发送 Frame #%d | WebP: %.1fKB | 格式: WebP | WebSocket: ✓ | 时间: %dms", 
+                   frameNum, webpData.length / 1024.0f, System.currentTimeMillis() % 100000));
+            
+            // 每50帧输出一次统计数据（约2秒）
+            if (frameNum % 50 == 0) {
+                long currentTime = System.currentTimeMillis();
+                if (captureStartTime > 0) {
+                    float timeDiff = (currentTime - captureStartTime) / 1000.0f;
+                    float fps = frameNum / timeDiff;
+                    Log.i(TAG, String.format("📡 摄像头发送统计 | 帧数: %d | FPS: %.1f | 累计: %.1f MB", 
+                           frameNum, fps, totalDataSize.get() / 1024.0f / 1024.0f));
+                }
+            }
+            
+        } catch (Exception e) {
+            Log.e(TAG, "发送摄像头数据失败: " + e.getMessage(), e);
+        }
+    }
+    
+    /**
+     * 启动定时采集
+     */
+    private void startCaptureTimer() {
+        if (captureHandler != null && captureRunnable != null) {
+            captureStartTime = System.currentTimeMillis();
+            frameCount.set(0);
+            totalDataSize.set(0);
+            
+            Log.i(TAG, "🎬 启动摄像头定时采集 (40ms间隔)");
+            captureHandler.post(captureRunnable);
+        }
+    }
+    
+    /**
+     * 停止定时采集
+     */
+    private void stopCaptureTimer() {
+        if (captureHandler != null && captureRunnable != null) {
+            captureHandler.removeCallbacks(captureRunnable);
+            Log.i(TAG, "🛑 摄像头定时采集已停止");
+        }
+    }
+    
+    /**
      * 释放资源
      */
     public void release() {
         stopCamera();
         stopBackgroundThread();
+        
+        // 不需要断开WebSocket连接，因为它由PermissionManager管理
+        
+        Log.i(TAG, "🗑️ CameraController 资源释放完成");
     }
 }

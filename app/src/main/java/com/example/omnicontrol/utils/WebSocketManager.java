@@ -30,6 +30,10 @@ public class WebSocketManager {
     private AtomicLong sentBytes = new AtomicLong(0);
     private long lastStatsTime = System.currentTimeMillis();
     
+    // 用户信息
+    private String phoneNumber;
+    private String userId;
+    
     // 连接状态监听器
     public interface ConnectionStateListener {
         void onConnectionStateChanged(int state);
@@ -53,6 +57,17 @@ public class WebSocketManager {
     
     public void setConnectionStateListener(ConnectionStateListener listener) {
         this.stateListener = listener;
+    }
+    
+    /**
+     * 连接到WebSocket服务器
+     * @param phoneNumber 用户手机号
+     * @param userId 用户ID
+     */
+    public void connect(String phoneNumber, String userId) {
+        this.phoneNumber = phoneNumber;
+        this.userId = userId;
+        connect();
     }
     
     /**
@@ -88,6 +103,8 @@ public class WebSocketManager {
                 @Override
                 public void onMessage(java.nio.ByteBuffer bytes) {
                     Log.d(TAG, "📨 收到二进制消息: " + bytes.remaining() + " bytes");
+                    // 使用RDTProtocol解析接收到的消息
+                    handleReceivedMessage(bytes.array());
                 }
                 
                 @Override
@@ -122,49 +139,149 @@ public class WebSocketManager {
     }
     
     /**
+     * 处理接收到的消息
+     */
+    private void handleReceivedMessage(byte[] data) {
+        try {
+            RDTProtocol.RDTMessageInfo messageInfo = RDTProtocol.parseRDTMessage(data);
+            if (messageInfo != null) {
+                Log.d(TAG, "📨 解析RDT消息: " + messageInfo.getSignalTypeName());
+                
+                switch (messageInfo.signalType) {
+                    case RDTDefine.RdtSignal.SC_CONTROL:
+                        // 处理控制命令
+                        String command = RDTProtocol.parseControlCommand(messageInfo.messageData);
+                        Log.i(TAG, "🎮 收到控制命令: " + command);
+                        break;
+                        
+                    case RDTDefine.RdtSignal.SC_FILE:
+                        // 处理文件操作
+                        RDTProtocol.FileOperationInfo fileOp = RDTProtocol.parseFileOperation(messageInfo.messageData);
+                        if (fileOp != null) {
+                            Log.i(TAG, String.format("📁 收到文件操作: %s (%s, %d bytes)", 
+                                fileOp.fileName, fileOp.fileType, fileOp.fileData.length));
+                        }
+                        break;
+                        
+                    default:
+                        Log.d(TAG, "📨 未处理的消息类型: " + messageInfo.getSignalTypeName());
+                        break;
+                }
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "处理接收消息失败: " + e.getMessage(), e);
+        }
+    }
+    
+    /**
      * 发送用户认证信息
      */
     private void sendUserAuth() {
         try {
-            String phoneNumber = "";
-            String superId = "";
-            
-            // 如果有Context，从 UserManager 获取真实的用户信息
-            if (context != null) {
-                try {
-                    UserManager userManager = new UserManager(context);
-                    phoneNumber = userManager.getCurrentUsername(); // 手机号
-                    superId = userManager.getSuperID(); // Super ID（登录接口返回的super_id）
-                    
-                    if (phoneNumber == null) phoneNumber = "";
-                    if (superId == null) superId = "";
-                    
-                } catch (Exception e) {
-                    Log.w(TAG, "获取用户信息失败，使用默认值: " + e.getMessage());
-                }
+            if (phoneNumber == null || userId == null) {
+                Log.e(TAG, "❌ 用户信息为空，无法发送认证");
+                return;
             }
             
-            // 如果没有获取到有效的用户信息，使用默认值
-            if (phoneNumber.isEmpty()) {
-                phoneNumber = "default_phone";
-            }
-            if (superId.isEmpty()) {
-                superId = "default_super";
-            }
+            // 使用RDTProtocol创建用户认证消息
+            byte[] authMessage = RDTProtocol.createUserMessage(phoneNumber, userId);
+            webSocketClient.send(authMessage);
             
-            RDTMessage message = new RDTMessage();
-            message.writeInt(RDTDefine.RdtSignal.CS_USER)
-                   .writeString(phoneNumber)
-                   .writeString(superId);
-            
-            byte[] data = message.getData();
-            webSocketClient.send(data);
-            
-            Log.i(TAG, "🔐 已发送用户认证信息: 手机号=" + phoneNumber + ", Super ID=" + superId);
-            message.close();
+            Log.i(TAG, String.format("🔐 发送用户认证: 手机号=%s, 用户ID=%s", phoneNumber, userId));
             
         } catch (Exception e) {
             Log.e(TAG, "发送用户认证失败: " + e.getMessage(), e);
+            if (stateListener != null) {
+                mainHandler.post(() -> stateListener.onError("认证失败: " + e.getMessage()));
+            }
+        }
+    }
+    
+    /**
+     * 发送音频数据
+     */
+    public void sendAudioData(byte[] audioData) {
+        Log.i(TAG, String.format("🎤 WebSocketManager.sendAudioData 被调用 - 数据大小: %d bytes, 连接状态: %s", 
+            audioData.length, RDTDefine.getConnectionStateDescription(connectionState.get())));
+            
+        if (connectionState.get() != RDTDefine.ConnectionState.CONNECTED) {
+            Log.w(TAG, "⚠️ 音频数据发送被跳过 - WebSocket未连接");
+            return;
+        }
+        
+        try {
+            byte[] rdtMessage = RDTProtocol.createAudioMessage(audioData);
+            webSocketClient.send(rdtMessage);
+            
+            sentBytes.addAndGet(rdtMessage.length);
+            Log.i(TAG, String.format("✅ 音频数据发送成功: %d bytes -> %d bytes RDT", audioData.length, rdtMessage.length));
+            
+        } catch (Exception e) {
+            Log.e(TAG, "发送音频数据失败: " + e.getMessage(), e);
+        }
+    }
+    
+    /**
+     * 发送摄像头数据
+     */
+    public void sendCameraData(byte[] imageData) {
+        Log.i(TAG, String.format("📷 WebSocketManager.sendCameraData 被调用 - 数据大小: %d bytes, 连接状态: %s", 
+            imageData.length, RDTDefine.getConnectionStateDescription(connectionState.get())));
+            
+        if (connectionState.get() != RDTDefine.ConnectionState.CONNECTED) {
+            Log.w(TAG, "⚠️ 摄像头数据发送被跳过 - WebSocket未连接");
+            return;
+        }
+        
+        try {
+            byte[] rdtMessage = RDTProtocol.createCameraMessage(imageData);
+            webSocketClient.send(rdtMessage);
+            
+            sentBytes.addAndGet(rdtMessage.length);
+            Log.i(TAG, String.format("✅ 摄像头数据发送成功: %d bytes -> %d bytes RDT", imageData.length, rdtMessage.length));
+            
+        } catch (Exception e) {
+            Log.e(TAG, "发送摄像头数据失败: " + e.getMessage(), e);
+        }
+    }
+    
+    /**
+     * 发送控制响应
+     */
+    public void sendControlResponse(int responseCode, String message) {
+        if (connectionState.get() != RDTDefine.ConnectionState.CONNECTED) {
+            return;
+        }
+        
+        try {
+            byte[] rdtMessage = RDTProtocol.createControlResponseMessage(responseCode, message);
+            webSocketClient.send(rdtMessage);
+            
+            sentBytes.addAndGet(rdtMessage.length);
+            Log.i(TAG, String.format("🎮 发送控制响应: code=%d, message=%s", responseCode, message));
+            
+        } catch (Exception e) {
+            Log.e(TAG, "发送控制响应失败: " + e.getMessage(), e);
+        }
+    }
+    
+    /**
+     * 发送文件响应
+     */
+    public void sendFileResponse(boolean success, String message) {
+        if (connectionState.get() != RDTDefine.ConnectionState.CONNECTED) {
+            return;
+        }
+        
+        try {
+            byte[] rdtMessage = RDTProtocol.createFileResponseMessage(success, message);
+            webSocketClient.send(rdtMessage);
+            
+            sentBytes.addAndGet(rdtMessage.length);
+            Log.i(TAG, String.format("📁 发送文件响应: success=%b, message=%s", success, message));
+            
+        } catch (Exception e) {
+            Log.e(TAG, "发送文件响应失败: " + e.getMessage(), e);
         }
     }
     
@@ -178,36 +295,36 @@ public class WebSocketManager {
         }
         
         try {
+            // 使用RDTProtocol封装屏幕数据
             RDTMessage message = new RDTMessage();
+            message.writeInt(width);
+            message.writeInt(height);
+            message.writeInt((int) System.currentTimeMillis());
+            message.writeByteArray(imageData);
             
-            // 构造屏幕数据消息
-            message.writeInt(RDTDefine.RdtSignal.CS_SCREEN)  // 信号类型
-                   .writeInt((int) System.currentTimeMillis()) // 时间戳
-                   .writeRawData(imageData);                 // 图像数据
-            
-            byte[] data = message.getData();
-            webSocketClient.send(data);
+            byte[] rdtMessage = RDTProtocol.createRDTMessage(RDTDefine.RdtSignal.CS_SCREEN, message);
+            webSocketClient.send(rdtMessage);
             
             // 更新统计数据
             long frameNum = sentFrames.incrementAndGet();
-            sentBytes.addAndGet(data.length);
+            sentBytes.addAndGet(rdtMessage.length);
             
             // 每100帧输出一次统计
             if (frameNum % 100 == 0) {
                 long currentTime = System.currentTimeMillis();
                 float timeDiff = (currentTime - lastStatsTime) / 1000.0f;
                 float fps = 100.0f / timeDiff;
-                float mbps = (data.length * 100 * 8) / (timeDiff * 1024 * 1024);
+                float mbps = (rdtMessage.length * 100 * 8) / (timeDiff * 1024 * 1024);
                 
                 Log.i(TAG, String.format("📡 WebSocket发送统计 | 帧数: %d | FPS: %.1f | 速率: %.2f Mbps | 数据: %.1f KB", 
-                       frameNum, fps, mbps, data.length / 1024.0f));
+                       frameNum, fps, mbps, rdtMessage.length / 1024.0f));
                        
                 lastStatsTime = currentTime;
             }
             
             // 通知监听器
             if (stateListener != null) {
-                mainHandler.post(() -> stateListener.onScreenDataSent(frameNum, data.length));
+                mainHandler.post(() -> stateListener.onScreenDataSent(frameNum, rdtMessage.length));
             }
             
             message.close();

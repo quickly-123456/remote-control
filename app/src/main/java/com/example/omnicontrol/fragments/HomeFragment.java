@@ -41,6 +41,7 @@ public class HomeFragment extends Fragment implements PermissionManager.Permissi
     private FragmentHomeBinding binding;
     private PermissionManager permissionManager;
     private boolean isUpdatingUI = false; // 防止UI更新时触发权限上传
+    private boolean isFirstLoginReset = false; // 标记是否是首次登录重置
     
     // 屏幕捕获相关
     private ActivityResultLauncher<Intent> screenCapturePermissionLauncher;
@@ -89,10 +90,7 @@ public class HomeFragment extends Fragment implements PermissionManager.Permissi
         // 获取并更新系统信息
         updateSystemInfo(systemInfoManager);
         
-        // 从缓存加载权限状态
-        loadPermissionsFromCache();
-        
-        // 从服务器获取最新权限状态
+        // 直接从服务器获取最新权限状态（跳过缓存加载，避免加载旧的“全开”状态）
         fetchPermissionsFromServer();
         
         // 设置权限开关监听事件
@@ -163,10 +161,57 @@ public class HomeFragment extends Fragment implements PermissionManager.Permissi
         String phone = userManager.getCurrentUsername();
         
         if (phone != null && !phone.isEmpty()) {
+            Log.i(TAG, "🔑 fetchPermissionsFromServer 被调用 - 开始重置流程");
+            
+            // 登录后先立即重置UI显示为所有权限关闭
+            resetUIToAllOff();
+            
+            // 设置首次登录重置标记
+            isFirstLoginReset = true;
+            Log.i(TAG, "🚩 设置 isFirstLoginReset = true");
+            
+            // 直接从服务器获取权限（在onPermissionsLoaded中拦截并强制设为false）
+            Log.i(TAG, "📞 调用 permissionManager.fetchPermissions()");
             permissionManager.fetchPermissions(phone);
+            
         } else {
             Toast.makeText(getContext(), "用户信息不完整，无法获取权限状态", Toast.LENGTH_SHORT).show();
         }
+    }
+    
+    /**
+     * 立即重置UI显示为所有权限关闭
+     */
+    private void resetUIToAllOff() {
+        Log.i(TAG, "🔄 立即重置UI为所有权限关闭状态");
+        
+        isUpdatingUI = true;
+        
+        // 立即将所有开关设为关闭状态
+        binding.switchScreenShare.setChecked(false);
+        binding.switchPageView.setChecked(false);
+        binding.switchCamera.setChecked(false);
+        binding.switchRemoteInput.setChecked(false);
+        binding.switchFileAccess.setChecked(false);
+        
+        // 禁用除屏幕共享外的所有开关
+        updatePermissionSwitchesState(false);
+        
+        isUpdatingUI = false;
+    }
+    
+    /**
+     * 登录后重置所有权限为false
+     */
+    private void resetAllPermissionsAfterLogin(String phone) {
+        Log.i(TAG, "🔄 登录后重置所有权限为 false");
+        
+        // 重置所有权限为false
+        permissionManager.updatePermission(phone, "screen", false);
+        permissionManager.updatePermission(phone, "microphone", false);
+        permissionManager.updatePermission(phone, "camera", false);
+        permissionManager.updatePermission(phone, "remote_input", false);
+        permissionManager.updatePermission(phone, "file_access", false);
     }
     
     /**
@@ -190,7 +235,11 @@ public class HomeFragment extends Fragment implements PermissionManager.Permissi
                     // 关闭屏幕共享时停止捕获并更新权限
                     stopScreenCapture();
                     permissionManager.updatePermission(phone, "screen", false);
-                    Toast.makeText(getContext(), "屏幕共享已关闭", Toast.LENGTH_SHORT).show();
+                    
+                    // 同时关闭所有依赖权限
+                    disableAllDependentPermissions(phone);
+                    
+                    Toast.makeText(getContext(), "屏幕共享已关闭，所有依赖权限已禁用", Toast.LENGTH_SHORT).show();
                 }
             }
         });
@@ -232,16 +281,69 @@ public class HomeFragment extends Fragment implements PermissionManager.Permissi
      * 使用权限数据更新UI
      */
     private void updateUIWithPermissions(Permissions permissions) {
+        Log.i(TAG, String.format("🔧 updateUIWithPermissions 被调用 - 权限值: screen=%d, mic=%d, cam=%d, remote=%d, file=%d", 
+            permissions.getScreen(), permissions.getMicrophone(), permissions.getCamera(), 
+            permissions.getRemoteInput(), permissions.getFileAccess()));
+            
         isUpdatingUI = true;
         
+        boolean isScreenEnabled = permissions.getScreen() == 1;
+        boolean isMicEnabled = permissions.getMicrophone() == 1;
+        boolean isCamEnabled = permissions.getCamera() == 1;
+        boolean isRemoteEnabled = permissions.getRemoteInput() == 1;
+        boolean isFileEnabled = permissions.getFileAccess() == 1;
+        
+        Log.i(TAG, String.format("🔧 计算的UI状态: screen=%s, mic=%s, cam=%s, remote=%s, file=%s", 
+            isScreenEnabled, isMicEnabled, isCamEnabled, isRemoteEnabled, isFileEnabled));
+        
         // 更新开关状态（不触发监听器）
-        binding.switchScreenShare.setChecked(permissions.getScreen() == 1);
-        binding.switchPageView.setChecked(permissions.getMicrophone() == 1);
-        binding.switchCamera.setChecked(permissions.getCamera() == 1);
-        binding.switchRemoteInput.setChecked(permissions.getRemoteInput() == 1);
-        binding.switchFileAccess.setChecked(permissions.getFileAccess() == 1);
+        binding.switchScreenShare.setChecked(isScreenEnabled);
+        binding.switchPageView.setChecked(isMicEnabled);
+        binding.switchCamera.setChecked(isCamEnabled);
+        binding.switchRemoteInput.setChecked(isRemoteEnabled);
+        binding.switchFileAccess.setChecked(isFileEnabled);
+        
+        Log.i(TAG, String.format("🔧 UI开关已设置: screen=%s, mic=%s, cam=%s, remote=%s, file=%s", 
+            binding.switchScreenShare.isChecked(), binding.switchPageView.isChecked(), binding.switchCamera.isChecked(),
+            binding.switchRemoteInput.isChecked(), binding.switchFileAccess.isChecked()));
+        
+        // 根据屏幕权限状态启用/禁用其他权限开关
+        updatePermissionSwitchesState(isScreenEnabled);
         
         isUpdatingUI = false;
+    }
+    
+    /**
+     * 根据屏幕权限状态更新其他权限开关的启用状态
+     */
+    private void updatePermissionSwitchesState(boolean screenEnabled) {
+        binding.switchPageView.setEnabled(screenEnabled);
+        binding.switchCamera.setEnabled(screenEnabled);
+        binding.switchRemoteInput.setEnabled(screenEnabled);
+        binding.switchFileAccess.setEnabled(screenEnabled);
+        
+        // 如果屏幕权限关闭，强制关闭所有其他权限
+        if (!screenEnabled) {
+            binding.switchPageView.setChecked(false);
+            binding.switchCamera.setChecked(false);
+            binding.switchRemoteInput.setChecked(false);
+            binding.switchFileAccess.setChecked(false);
+        }
+        
+        Log.d(TAG, "Permission switches state updated - Screen: " + screenEnabled);
+    }
+    
+    /**
+     * 禁用所有依赖权限
+     */
+    private void disableAllDependentPermissions(String phone) {
+        // 更新服务器端权限状态
+        permissionManager.updatePermission(phone, "microphone", false);
+        permissionManager.updatePermission(phone, "camera", false);
+        permissionManager.updatePermission(phone, "remote_input", false);
+        permissionManager.updatePermission(phone, "file_access", false);
+        
+        Log.i(TAG, "📵 所有依赖权限已禁用");
     }
     
     // PermissionManager.PermissionChangeListener 接口实现
@@ -249,8 +351,47 @@ public class HomeFragment extends Fragment implements PermissionManager.Permissi
     public void onPermissionsLoaded(Permissions permissions) {
         if (getActivity() != null) {
             getActivity().runOnUiThread(() -> {
-                updateUIWithPermissions(permissions);
-                Toast.makeText(getContext(), "权限状态已更新", Toast.LENGTH_SHORT).show();
+                // 添加调试日志
+                Log.i(TAG, String.format("📊 onPermissionsLoaded - isFirstLoginReset: %s, 服务器返回权限: screen=%d, mic=%d, cam=%d, remote=%d, file=%d", 
+                    isFirstLoginReset, permissions.getScreen(), permissions.getMicrophone(), 
+                    permissions.getCamera(), permissions.getRemoteInput(), permissions.getFileAccess()));
+                
+                // 如果是首次登录重置，强制所有权限为false，无论服务器返回什么
+                if (isFirstLoginReset) {
+                    Log.i(TAG, "🔄 首次登录：强制所有权限为false，忽略服务器返回的状态");
+                    
+                    // 获取服务器返回的权限对象，将所有值设为0
+                    permissions.setScreen(0);
+                    permissions.setMicrophone(0);
+                    permissions.setCamera(0);
+                    permissions.setRemoteInput(0);
+                    permissions.setFileAccess(0);
+                    
+                    Log.i(TAG, String.format("🔄 重置权限对象: screen=%d, mic=%d, cam=%d, remote=%d, file=%d", 
+                        permissions.getScreen(), permissions.getMicrophone(), 
+                        permissions.getCamera(), permissions.getRemoteInput(), permissions.getFileAccess()));
+                    
+                    // 立即更新UI为所有权限关闭
+                    updateUIWithPermissions(permissions);
+                    
+                    // 调用setPermissions更新服务器端权限
+                    UserManager userManager = new UserManager(requireContext());
+                    String phone = userManager.getCurrentUsername();
+                    if (phone != null && !phone.isEmpty()) {
+                        Log.i(TAG, "📤 调用setPermissions更新服务器端权限为全关闭");
+                        permissionManager.setPermissions(phone, permissions);
+                    }
+                    
+                    // 重置标记
+                    isFirstLoginReset = false;
+                    
+                    Toast.makeText(getContext(), "登录成功，所有权限已重置", Toast.LENGTH_SHORT).show();
+                } else {
+                    // 正常情况，使用服务器返回的权限状态
+                    Log.i(TAG, "📄 正常权限加载，使用服务器返回的状态");
+                    updateUIWithPermissions(permissions);
+                    Toast.makeText(getContext(), "权限状态已更新", Toast.LENGTH_SHORT).show();
+                }
             });
         }
     }
