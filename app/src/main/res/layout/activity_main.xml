@@ -19,7 +19,45 @@
         android:layout_width="wrap_content"
         android:layout_height="match_parent"
         android:layout_gravity="start"
+        android:background="@color/white"
         android:fitsSystemWindows="true"
-        app:headerLayout="@layout/nav_header_main"
-        app:menu="@menu/activity_main_drawer" />
+        >
+        <LinearLayout
+            android:orientation="vertical"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent">
+            <ImageView
+                android:id="@+id/img_nav_close"
+                android:layout_width="30dp"
+                android:layout_height="30dp"
+                android:layout_gravity="end"
+                android:layout_marginTop="10dp"
+                android:layout_marginRight="10dp"
+                android:src="@drawable/ic_close"
+                />
+            <TextView
+                android:layout_marginTop="10dp"
+                android:id="@+id/tv_update_password"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:background="#E7E7E7"
+                android:textColor="@color/black"
+                android:text="更新密码"
+                android:gravity="center"
+                android:textSize="15sp"
+                android:padding="8dp"/>
+            <TextView
+                android:id="@+id/tv_exit_system"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:background="#E7E7E7"
+                android:textColor="@color/black"
+                android:text="退出系统"
+                android:textSize="15sp"
+                android:gravity="center"
+                android:layout_marginTop="5dp"
+                android:padding="8dp"/>
+
+        </LinearLayout>
+    </com.google.android.material.navigation.NavigationView>
 </androidx.drawerlayout.widget.DrawerLayout>

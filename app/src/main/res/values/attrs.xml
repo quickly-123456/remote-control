@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <declare-styleable name="BottomNavigationBar">
+        <attr name="itemCount" format="integer" />
+        <attr name="selectedItem" format="integer" />
+
+        <attr name="bottomnav_rippleStyle" format="enum">
+            <enum name="none" value="0" />
+            <enum name="circle" value="1" />
+            <enum name="rounded" value="2" />
+        </attr>
+    </declare-styleable>
+
+
+
+    <declare-styleable name="PasswordInputView">
+        <attr name="hint" format="string"/>
+        <attr name="isPassword" format="boolean"/>
+    </declare-styleable>
+</resources>

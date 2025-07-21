@@ -12,4 +12,9 @@
     <string name="menu_slideshow">Slideshow</string>
     <string name="loading_message">loading_message\n</string>
     <string name="loading_title">loading_title</string>
+    <string name="bottom_nav_all">全部</string>
+    <string name="bottom_nav_connected">已连接</string>
+    <string name="bottom_nav_unconnected">未连接</string>
+
+
 </resources>

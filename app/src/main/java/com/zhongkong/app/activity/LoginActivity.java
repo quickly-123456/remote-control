@@ -1,4 +1,4 @@
-package com.zhongkong.app.ui.activity;
+package com.zhongkong.app.activity;
 
 import android.content.Intent;
 import android.os.Bundle;
@@ -20,7 +20,6 @@ import com.zhongkong.app.utils.ConstantUtil;
 
 public class LoginActivity extends AppCompatActivity {
     private ActivityLoginBinding binding;
-    private boolean isPasswordVisible = false;
 
     @Override
     protected void onCreate(@Nullable Bundle savedInstanceState) {
@@ -43,18 +42,11 @@ public class LoginActivity extends AppCompatActivity {
     }
 
     private void initView() {
-        binding.ivToggleVisibility.setOnClickListener(v->{
-            isPasswordVisible = !isPasswordVisible;
-            if(isPasswordVisible){
-                binding.etPassword.setTransformationMethod(HideReturnsTransformationMethod.getInstance());
-            }else{
-                binding.etPassword.setTransformationMethod(PasswordTransformationMethod.getInstance());
-            }
-        });
+
 
         binding.loginButton.setOnClickListener(v->{
             String phone = binding.etUsername.getText().toString();
-            String password = binding.etPassword.getText().toString();
+            String password = binding.piPassword.getContent();
             if(phone.isEmpty() || password.isEmpty()){
                 ToastUtils.showShort("账号和密码不能为空");
                 return;
@@ -62,14 +54,17 @@ public class LoginActivity extends AppCompatActivity {
             JSONObject postData = new JSONObject();
             postData.put("phone",phone);
             postData.put("password",password);
-            APIUtil.postRequest(this, APIUtil.URL_LOGIN, postData.toJSONString(), response -> {
+            APIUtil.postRequestWithLoadDialog(this, APIUtil.URL_LOGIN, postData.toJSONString(), response -> {
                 try{
                     JSONObject body = JSONObject.parseObject(response);
                     JSONObject user = body.getJSONObject("user");
                     int userId = Integer.parseInt(user.getString("id"));
                     if(userId>0){
                         Hawk.put(ConstantUtil.HAWK_USER_ID,userId);
+                        Hawk.put(ConstantUtil.HAWK_USER_PHONE,phone);
                         gotoMainActivity();
+                    }else{
+                        ToastUtils.showShort("登录失败:"+body.getString("message"));
                     }
                 }catch (Exception e){
                     ToastUtils.showShort("登录失败:"+e.getMessage());

@@ -7,5 +7,10 @@
     <color name="teal_700">#FF018786</color>
     <color name="black">#FF000000</color>
     <color name="white">#FFFFFFFF</color>
+    <color name="connected">#38A169</color>
+    <color name="disconnected">#E53E3E</color>
+    <color name="connect">#718096</color>
+    <color name="disconnect">#718096</color>
+    <color name="bg_grey">#E4E4E4</color>
 
 </resources>

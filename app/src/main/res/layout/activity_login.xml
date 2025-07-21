@@ -96,36 +96,15 @@
         app:layout_constraintTop_toBottomOf="@+id/login_prompt">
     </EditText>
 
-    <RelativeLayout
-        android:id="@+id/password_layout"
+    <com.zhongkong.app.ui.widget.PasswordInputView
+        android:id="@+id/pi_password"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        app:layout_constraintTop_toBottomOf="@id/et_username"
-        >
-        <!-- 密码输入框 -->
-        <EditText
-            android:id="@+id/et_password"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:hint="密码*"
-            android:layout_marginTop="10dp"
-            android:inputType="textPassword"
-            android:paddingEnd="48dp"
-            android:singleLine="true"
-            android:textSize="16sp"
-            />
-
-        <ImageView
-            android:id="@+id/iv_toggle_visibility"
-            android:layout_width="24dp"
-            android:layout_height="24dp"
-            android:layout_alignParentEnd="true"
-            android:layout_centerVertical="true"
-            android:layout_marginEnd="16dp"
-            android:contentDescription="切换密码可见性"
-            android:src="@drawable/ic_visibility_off"
-            app:tint="#888888" />
-    </RelativeLayout>
+        app:hint="确认新密码*"
+        android:layout_marginTop="16dp"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toBottomOf="@+id/et_username"/>
 
     <!-- 登录按钮 -->
     <Button
@@ -142,6 +121,6 @@
         android:textSize="18sp"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toBottomOf="@+id/password_layout" />
+        app:layout_constraintTop_toBottomOf="@+id/pi_password" />
 
 </androidx.constraintlayout.widget.ConstraintLayout>

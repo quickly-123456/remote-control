@@ -51,6 +51,5 @@ dependencies {
     implementation 'com.alibaba.fastjson2:fastjson2:2.0.57'
     implementation "com.orhanobut:hawk:2.0.1"
     implementation 'com.afollestad.material-dialogs:core:3.3.0'
-    implementation 'com.aurelhubert:ahbottomnavigation:2.3.4'
 
 }
