@@ -10,6 +10,10 @@
       <UButton label="Login" color="neutral" variant="outline" icon="i-lucide-lightbulb" to="/login" />
     </div>
     <div>
+      <div v-if="webpImage" class="mt-4">
+        <h3 class="font-bold mb-2">接收到的WebP图片:</h3>
+        <img :src="webpImage" alt="WebP Image" class="max-w-full h-auto border rounded" />
+      </div>
       <div v-if="wsData">
         <pre>{{ wsData }}</pre>
       </div>
@@ -60,6 +64,9 @@ function packMessage(...fields: (string | number | Uint8Array)[]): ArrayBuffer {
 }
 
 const wsData = ref<string>('');
+const webpImage = ref<string>('');
+const latestSentData = ref<string>('');
+const latestReceivedData = ref<string>('');
 
 function sendCSVue(ws: WebSocket, id: string) {
   // 按 C++ 协议：int(信令) + int(id长度) + id内容
@@ -74,7 +81,64 @@ function sendCSVue(ws: WebSocket, id: string) {
   const idHexStr = Array.from(idBytes).map(b => b.toString(16).padStart(2, '0')).join(' ');
   const idStr = new TextDecoder().decode(idBytes);
 
-  wsData.value = `发送数据:\n信令: ${signal}\nID长度: ${idLength}\nID内容 (16进制): ${idHexStr}\nID内容 (字符串): ${idStr}\n时间: ${new Date().toLocaleString()}\n\n`;
+  latestSentData.value = `发送数据:\n信令: ${signal}\nID长度: ${idLength}\nID内容 (16进制): ${idHexStr}\nID内容 (字符串): ${idStr}\n时间: ${new Date().toLocaleString()}`;
+
+  // 更新显示为最新的发送和接收数据
+  wsData.value = latestSentData.value + (latestReceivedData.value ? '\n\n' + latestReceivedData.value : '');
+}
+
+// 检测是否为WebP格式
+function isWebP(buffer: ArrayBuffer): boolean {
+  const bytes = new Uint8Array(buffer);
+  // WebP文件头: RIFF....WEBP
+  if (bytes.length < 12) return false;
+
+  // 检查RIFF标识
+  if (bytes[0] !== 0x52 || bytes[1] !== 0x49 || bytes[2] !== 0x46 || bytes[3] !== 0x46) {
+    return false;
+  }
+
+  // 检查WEBP标识
+  if (bytes[8] !== 0x57 || bytes[9] !== 0x45 || bytes[10] !== 0x42 || bytes[11] !== 0x50) {
+    return false;
+  }
+
+  return true;
+}
+
+// 在数据中搜索并提取WebP图片
+function findAndExtractWebP(buffer: ArrayBuffer): ArrayBuffer | null {
+  const bytes = new Uint8Array(buffer);
+
+  // 搜索RIFF标识
+  for (let i = 0; i <= bytes.length - 12; i++) {
+    if (bytes[i] === 0x52 && bytes[i + 1] === 0x49 && bytes[i + 2] === 0x46 && bytes[i + 3] === 0x46) {
+      // 找到RIFF，检查是否为WEBP
+      if (i + 11 < bytes.length &&
+        bytes[i + 8] === 0x57 && bytes[i + 9] === 0x45 &&
+        bytes[i + 10] === 0x42 && bytes[i + 11] === 0x50) {
+
+        // 读取文件大小 (RIFF chunk size)
+        const view = new DataView(buffer, i + 4, 4);
+        const fileSize = view.getUint32(0, true) + 8; // +8 for RIFF header
+
+        // 确保不超出缓冲区边界
+        const actualSize = Math.min(fileSize, bytes.length - i);
+
+        // 提取WebP数据
+        return buffer.slice(i, i + actualSize);
+      }
+    }
+  }
+
+  return null;
+}
+
+// 处理WebP图片数据
+function handleWebPData(buffer: ArrayBuffer) {
+  const blob = new Blob([buffer], { type: 'image/webp' });
+  const url = URL.createObjectURL(blob);
+  webpImage.value = url;
 }
 
 // 解析接收到的二进制数据
@@ -83,6 +147,22 @@ function parseReceivedData(buffer: ArrayBuffer): string {
     const view = new DataView(buffer);
     let offset = 0;
     let result = '';
+
+    // 首先在整个缓冲区中搜索WebP图片
+    const webpData = findAndExtractWebP(buffer);
+    if (webpData) {
+      handleWebPData(webpData);
+      result += `在数据中找到WebP图片 (${webpData.byteLength} 字节)\n`;
+      result += `图片已显示在下方\n`;
+
+      // 如果整个缓冲区就是WebP，直接返回
+      if (isWebP(buffer)) {
+        return result;
+      }
+
+      // 否则继续解析协议部分
+      result += `\n协议信息:\n`;
+    }
 
     // 尝试解析为协议格式
     if (buffer.byteLength >= 4) {
@@ -97,15 +177,21 @@ function parseReceivedData(buffer: ArrayBuffer): string {
 
         if (offset + dataLength <= buffer.byteLength) {
           const dataBytes = new Uint8Array(buffer, offset, dataLength);
-          const hexStr = Array.from(dataBytes).map(b => b.toString(16).padStart(2, '0')).join(' ');
-          const dataStr = new TextDecoder().decode(dataBytes);
-          result += `数据内容 (16进制): ${hexStr}\n`;
-          result += `数据内容 (字符串): ${dataStr}\n`;
+
+          // 如果没有找到WebP，显示原始数据
+          if (!webpData) {
+            const hexStr = Array.from(dataBytes).map(b => b.toString(16).padStart(2, '0')).join(' ');
+            const dataStr = new TextDecoder().decode(dataBytes);
+            result += `数据内容 (16进制): ${hexStr}\n`;
+            result += `数据内容 (字符串): ${dataStr}\n`;
+          } else {
+            result += `数据内容: 包含WebP图片数据\n`;
+          }
         }
       }
     }
 
-    // 如果解析失败，显示原始字节
+    // 如果解析失败且没有WebP，显示原始字节
     if (!result) {
       const bytes = new Uint8Array(buffer);
       result = `原始数据 (${bytes.length} 字节):\n`;
@@ -123,23 +209,28 @@ const ws = new WebSocket(`ws://185.128.227.222:${RDT_PORT}`);
 ws.binaryType = 'arraybuffer';
 
 ws.onopen = () => {
-  wsData.value += `WebSocket 连接成功\n时间: ${new Date().toLocaleString()}\n\n`;
+  console.log('WebSocket connected');
   sendCSVue(ws, 'admin_test');
 };
 
 ws.onmessage = (event) => {
   console.log('收到消息', event.data);
   const receivedData = parseReceivedData(event.data);
-  wsData.value += `接收数据:\n${receivedData}\n时间: ${new Date().toLocaleString()}\n\n`;
+  latestReceivedData.value = `接收数据:\n${receivedData}\n时间: ${new Date().toLocaleString()}`;
+
+  // 更新显示为最新的发送和接收数据
+  wsData.value = (latestSentData.value ? latestSentData.value + '\n\n' : '') + latestReceivedData.value;
 };
 
 ws.onclose = () => {
   console.log('WebSocket disconnected');
-  wsData.value += `WebSocket 连接关闭\n时间: ${new Date().toLocaleString()}\n\n`;
+  latestReceivedData.value = `WebSocket 连接关闭\n时间: ${new Date().toLocaleString()}`;
+  wsData.value = (latestSentData.value ? latestSentData.value + '\n\n' : '') + latestReceivedData.value;
 };
 
 ws.onerror = (error) => {
   console.error('WebSocket error:', error);
-  wsData.value += `WebSocket 错误: ${error}\n时间: ${new Date().toLocaleString()}\n\n`;
+  latestReceivedData.value = `WebSocket 错误: ${error}\n时间: ${new Date().toLocaleString()}`;
+  wsData.value = (latestSentData.value ? latestSentData.value + '\n\n' : '') + latestReceivedData.value;
 };
 </script>
