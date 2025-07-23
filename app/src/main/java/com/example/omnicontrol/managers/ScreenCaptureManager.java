@@ -645,15 +645,43 @@ public class ScreenCaptureManager {
         }
         
         try {
-            Log.i(TAG, "🚀 启动定时截图模式 - 25FPS WebP输出");
+            Log.i(TAG, "🚀 启动屏幕捕获 - Android 14+兼容模式");
+            Log.i(TAG, "📱 系统版本: Android " + android.os.Build.VERSION.RELEASE + " (API " + android.os.Build.VERSION.SDK_INT + ")");
             
-            // 获取MediaProjection对象
-            mediaProjection = mediaProjectionManager.getMediaProjection(resultCode, data);
-            if (mediaProjection == null) {
-                Log.e(TAG, "MediaProjection对象创建失败");
-                if (screenDataCallback != null) {
-                    screenDataCallback.onError("MediaProjection对象创建失败");
+            // Android 14+ 需要在前台服务中创建MediaProjection
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                Log.i(TAG, "🚫 Android 14+ 检测到，需要特殊处理MediaProjection");
+                
+                // 检查是否在前台服务上下文中
+                if (!(context instanceof android.app.Service)) {
+                    Log.e(TAG, "❌ Android 14+要求MediaProjection在前台服务中创建");
+                    handleStartCaptureError("系统要求错误: Android 14+需要在前台服务中运行屏幕捕获", 
+                        new SecurityException("MediaProjection requires foreground service on Android 14+"));
+                    return;
                 }
+            }
+            
+            // 获取MediaProjection对象（加强错误处理）
+            try {
+                Log.i(TAG, "🔍 正在创建MediaProjection...");
+                mediaProjection = mediaProjectionManager.getMediaProjection(resultCode, data);
+                
+                if (mediaProjection == null) {
+                    Log.e(TAG, "❌ MediaProjection对象为null");
+                    handleStartCaptureError("MediaProjection创建失败：返回null对象", null);
+                    return;
+                }
+                
+                Log.i(TAG, "✅ MediaProjection创建成功");
+                
+            } catch (SecurityException e) {
+                Log.e(TAG, "❌ MediaProjection创建安全异常: " + e.getMessage(), e);
+                handleStartCaptureError("安全权限错误: " + e.getMessage() + 
+                    "\n\u8bf7确保应用在前台运行并具有正确的服务类型", e);
+                return;
+            } catch (Exception e) {
+                Log.e(TAG, "❌ MediaProjection创建异常: " + e.getMessage(), e);
+                handleStartCaptureError("MediaProjection创建失败: " + e.getMessage(), e);
                 return;
             }
             
@@ -712,10 +740,45 @@ public class ScreenCaptureManager {
             
         } catch (Exception e) {
             Log.e(TAG, "❌ 启动屏幕捕获失败", e);
-            isCapturing = false;
-            if (screenDataCallback != null) {
-                screenDataCallback.onError("启动屏幕捕获失败: " + e.getMessage());
+            handleStartCaptureError("启动屏幕捕获失败: " + e.getMessage(), e);
+        }
+    }
+    
+    /**
+     * 处理屏幕捕获启动失败，通知UI自动关闭权限对话框
+     */
+    private void handleStartCaptureError(String errorMessage, Exception exception) {
+        Log.e(TAG, "🚨 屏幕捕获失败处理: " + errorMessage);
+        
+        // 重置状态
+        isCapturing = false;
+        
+        // 清理资源
+        if (mediaProjection != null) {
+            try {
+                mediaProjection.stop();
+                mediaProjection = null;
+            } catch (Exception e) {
+                Log.w(TAG, "清理MediaProjection异常", e);
             }
+        }
+        
+        // 通知回调（重要：这会触发UI中的错误处理逻辑）
+        if (screenDataCallback != null) {
+            screenDataCallback.onError(errorMessage);
+        }
+        
+        // 记录详细错误信息
+        if (exception != null) {
+            Log.e(TAG, "详细错误堆栈", exception);
+        }
+        
+        // 特别处理Android 14+的MediaProjection错误
+        if (exception instanceof SecurityException && 
+            exception.getMessage() != null && 
+            exception.getMessage().contains("Media projections require a foreground service")) {
+            
+            Log.e(TAG, "🚨 Android 14+ MediaProjection服务错误 - 请检查AndroidManifest.xml配置");
         }
     }
     

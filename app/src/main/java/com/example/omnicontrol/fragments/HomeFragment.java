@@ -429,9 +429,38 @@ public class HomeFragment extends Fragment implements PermissionManager.Permissi
                     if (isServiceBound && screenCaptureService != null && data != null) {
                         ScreenCaptureManager screenManager = screenCaptureService.getScreenCaptureManager();
                         if (screenManager != null) {
+                            // 设置错误回调以处理MediaProjection创建失败（自动关闭权限对话框）
+                            screenManager.setScreenDataCallback(new com.example.omnicontrol.managers.ScreenCaptureManager.ScreenDataCallback() {
+                                @Override
+                                public void onScreenData(byte[] data) {
+                                    // 屏幕数据回调（正常模式下不需要处理）
+                                }
+                                
+                                @Override
+                                public void onError(String error) {
+                                    // 处理屏幕捕获错误（重要：自动关闭权限对话框）
+                                    Log.e(TAG, "🚨 屏幕捕获失败回调: " + error);
+                                    
+                                    // 在主线程中处理UI更新
+                                    if (getActivity() != null) {
+                                        getActivity().runOnUiThread(() -> {
+                                            // 自动关闭权限对话框并重置状态
+                                            revertScreenSwitchState();
+                                            pendingScreenPermission = false;
+                                            
+                                            // 显示错误信息
+                                            Toast.makeText(getContext(), "屏幕捕获失败: " + error, Toast.LENGTH_LONG).show();
+                                            
+                                            Log.i(TAG, "✅ 权限对话框已自动关闭，状态已重置");
+                                        });
+                                    }
+                                }
+                            });
+                            
+                            // 启动屏幕捕获
                             screenManager.startCapture(result.getResultCode(), data);
                             
-                            // 更新权限状态
+                            // 更新权限状态（只有在成功启动后才更新）
                             if (pendingScreenPermission) {
                                 UserManager userManager = new UserManager(requireContext());
                                 String phone = userManager.getCurrentUsername();

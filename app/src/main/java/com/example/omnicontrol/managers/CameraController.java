@@ -232,11 +232,8 @@ public class CameraController {
         // 设置推送标记
         enableWebSocketPush = true;
         
-        // 自动开始摄像头（如果还未开始）
-        if (!isCameraOpen) {
-            startCamera();
-            Log.i(TAG, "📷 自动开始摄像头采集");
-        }
+        // 注意：不在这里调用startCamera()防止循环调用
+        // 调用方应该先调用startCamera()再调用enableWebSocketPush()
         
         // 启动后台传输定时器（每40ms）
         startCaptureTimer();
@@ -270,7 +267,7 @@ public class CameraController {
             return;
         }
         
-        // 检查权限
+        // 检查摄像头权限
         if (ActivityCompat.checkSelfPermission(context, Manifest.permission.CAMERA) 
             != PackageManager.PERMISSION_GRANTED) {
             Log.e(TAG, "❌ 摄像头权限未授予");
@@ -282,6 +279,34 @@ public class CameraController {
         
         try {
             Log.i(TAG, "📹 启动摄像头 - WebSocket+RDT协议模式");
+            Log.i(TAG, "📐 摄像头参数 - 分辨率: " + previewSize.getWidth() + "x" + previewSize.getHeight() + ", 格式: JPEG");
+            
+            // WebSocket连接状态检查和初始化（优先处理）
+            if (webSocketManager != null) {
+                Log.i(TAG, "🌐 WebSocket状态检查 - 连接状态: " + (webSocketManager.isConnected() ? "✅已连接" : "❌断开"));
+                
+                if (!webSocketManager.isConnected()) {
+                    Log.i(TAG, "🔄 WebSocket未连接，尝试重新连接...");
+                    webSocketManager.connect();
+                    
+                    // 等待连接建立（最多3秒）
+                    new Handler(android.os.Looper.getMainLooper()).postDelayed(() -> {
+                        boolean connected = webSocketManager.isConnected();
+                        Log.i(TAG, "🔍 WebSocket连接结果: " + (connected ? "✅成功" : "❌失败"));
+                        if (connected) {
+                            enableWebSocketPush();
+                            Log.i(TAG, "🚀 摄像头WebSocket推送已启用");
+                        } else {
+                            Log.w(TAG, "⚠️ WebSocket连接失败，摄像头数据将无法推送");
+                        }
+                    }, 3000);
+                } else {
+                    enableWebSocketPush();
+                    Log.i(TAG, "🚀 摄像头WebSocket推送已启用（现有连接）");
+                }
+            } else {
+                Log.w(TAG, "⚠️ WebSocket管理器为null，摄像头数据无法推送");
+            }
             
             // 创建ImageReader
             imageReader = ImageReader.newInstance(
@@ -293,30 +318,19 @@ public class CameraController {
             imageReader.setOnImageAvailableListener(imageAvailableListener, backgroundHandler);
             
             // 打开摄像头
+            Log.i(TAG, "🔓 正在打开摄像头设备: " + cameraId);
             cameraManager.openCamera(cameraId, cameraStateCallback, backgroundHandler);
             
-            // 连接WebSocket（添加详细诊断）
-            if (webSocketManager != null) {
-                Log.i(TAG, "🌐 WebSocket管理器状态 - 当前连接: " + webSocketManager.isConnected());
-                if (!webSocketManager.isConnected()) {
-                    Log.i(TAG, "🔗 开始连接摄像头WebSocket: " + RDTDefine.WS_SERVER_URL);
-                    webSocketManager.connect();
-                    
-                    // 等待连接结果（最多3秒）
-                    new Handler(android.os.Looper.getMainLooper()).postDelayed(() -> {
-                        boolean connected = webSocketManager.isConnected();
-                        Log.i(TAG, "🔍 WebSocket连接检查结果: " + (connected ? "✅ 成功" : "❌ 失败"));
-                        if (!connected) {
-                            Log.e(TAG, "⚠️ WebSocket连接失败，摄像头数据将无法推送");
-                        }
-                    }, 3000);
-                } else {
-                    Log.i(TAG, "✅ WebSocket已连接，摄像头数据推送就绪");
-                }
-            } else {
-                Log.e(TAG, "❌ WebSocket管理器为null，无法建立连接");
-            }
+            // 重置统计数据
+            frameCount.set(0);
+            totalDataSize.set(0);
+            captureStartTime = System.currentTimeMillis();
             
+        } catch (SecurityException e) {
+            Log.e(TAG, "❌ 摄像头权限被拒绝", e);
+            if (cameraDataCallback != null) {
+                cameraDataCallback.onError("摄像头权限被拒绝: " + e.getMessage());
+            }
         } catch (Exception e) {
             Log.e(TAG, "❌ 启动摄像头失败", e);
             if (cameraDataCallback != null) {
@@ -489,72 +503,72 @@ public class CameraController {
         };
     
     /**
-     * 处理捕获的图像（完全复用ScreenCaptureManager模式）
+     * 处理捕获的图像 - 转换为WebP格式并记录详细信息
      */
     private void processImage(Image image) {
+        if (image == null) {
+            return;
+        }
+        
         try {
-            long startTime = System.currentTimeMillis();
-            
-            // 获取JPEG数据
-            ByteBuffer buffer = image.getPlanes()[0].getBuffer();
-            byte[] jpegData = new byte[buffer.remaining()];
-            buffer.get(jpegData);
-            
-            // 转换为Bitmap
-            Bitmap bitmap = android.graphics.BitmapFactory.decodeByteArray(jpegData, 0, jpegData.length);
+            // 将Image转换为Bitmap
+            Bitmap bitmap = imageToBitmap(image);
             if (bitmap == null) {
-                Log.w(TAG, "JPEG转Bitmap失败");
+                Log.w(TAG, "⚠️ 图像转换为Bitmap失败");
                 return;
             }
             
-            // 记录原始尺寸
-            int originalWidth = bitmap.getWidth();
-            int originalHeight = bitmap.getHeight();
+            // 记录原始图像信息
+            long originalSize = bitmap.getByteCount();
+            Log.v(TAG, String.format("📸 原始图像 - 尺寸: %dx%d, 原始大小: %.1fKB, 格式: %s", 
+                bitmap.getWidth(), bitmap.getHeight(), originalSize / 1024.0f, bitmap.getConfig()));
             
-            // 压缩为WebP（完全复用ScreenCaptureManager的compressToWebP逻辑）
+            // 压缩为WebP格式
             byte[] webpData = compressToWebP(bitmap);
-            bitmap.recycle();
-            
-            if (webpData == null || webpData.length == 0) {
-                Log.w(TAG, "WebP压缩失败");
+            if (webpData == null) {
+                Log.w(TAG, "⚠️ WebP压缩失败");
+                bitmap.recycle();
                 return;
             }
             
-            long processingTime = System.currentTimeMillis() - startTime;
-            long currentFrame = frameCount.incrementAndGet();
+            // 计算压缩比
+            float compressionRatio = (float) webpData.length / originalSize * 100;
+            
+            // 📷 每个摄像头帧都输出详细日志（像音频一样）
+            long frameNum = frameCount.incrementAndGet();
             totalDataSize.addAndGet(webpData.length);
             
-            // 详细帧处理日志（完全复用ScreenCaptureManager的日志格式）
-            Log.i(TAG, String.format(
-                "📷 Camera Frame #%d: %dx%d -> WebP %.1fKB (处理耗时: %dms)", 
-                currentFrame, originalWidth, originalHeight, 
-                webpData.length / 1024.0f, processingTime
-            ));
+            Log.i(TAG, String.format("📷 摄像头帧 Frame #%d | 尺寸: %dx%d | 原始: %.1fKB | WebP: %.1fKB | 压缩率: %.1f%% | WebSocket: %s | 时间: %dms", 
+                frameNum, bitmap.getWidth(), bitmap.getHeight(), originalSize / 1024.0f, webpData.length / 1024.0f, 
+                compressionRatio, (webSocketManager != null && webSocketManager.isConnected()) ? "✅连接" : "❌断开", 
+                System.currentTimeMillis() % 100000));
             
-            // 记录实时日志
-            logImageData(image, webpData);
-            
-            // 保存最新图像数据供定时发送使用
+            // 保存最新图像数据供WebSocket推送使用
             synchronized (imageDataLock) {
                 latestImageData = webpData;
             }
             
-            // WebSocket实时推送（使用CS_CAMERA信号）
-            if (enableWebSocketPush && webSocketManager != null && webSocketManager.isConnected()) {
-                sendCameraData(webpData);
-                Log.d(TAG, String.format(
-                    "🌐 WebSocket发送: Camera Frame #%d | %.1fKB (%dx%d) -> %s", 
-                    currentFrame, webpData.length / 1024.0f, originalWidth, originalHeight, RDTDefine.WS_SERVER_URL
-                ));
-            }
-            
-            // 回调数据（保持兼容性）
+            // 回调原始WebP数据（保持兼容性）
             if (cameraDataCallback != null) {
                 cameraDataCallback.onCameraData(webpData);
             }
             
+            // 每50帧输出统计信息（约2秒，因为40ms间隔）
+            if (frameNum % 50 == 0) {
+                long currentTime = System.currentTimeMillis();
+                if (captureStartTime > 0) {
+                    float timeDiff = (currentTime - captureStartTime) / 1000.0f;
+                    float fps = frameNum / timeDiff;
+                    Log.i(TAG, String.format("📊 摄像头统计 | 帧数: %d | FPS: %.1f | 累计: %.1f MB | 平均压缩率: %.1f%%", 
+                           frameNum, fps, totalDataSize.get() / 1024.0f / 1024.0f, 
+                           (totalDataSize.get() * 100.0f) / (frameNum * originalSize)));
+                }
+            }
+            
+            bitmap.recycle();
+            
         } catch (Exception e) {
-            Log.e(TAG, "Error processing camera image", e);
+            Log.e(TAG, "❌ 处理摄像头图像数据异常", e);
             if (cameraDataCallback != null) {
                 cameraDataCallback.onError("摄像头图像处理错误: " + e.getMessage());
             }
@@ -742,6 +756,93 @@ public class CameraController {
             
         } catch (Exception e) {
             Log.e(TAG, "❌ 摄像头拍照失败", e);
+        }
+    }
+    
+    /**
+     * 处理相机图像数据 - 转换为WebP格式并记录详细信息
+     */
+    private void processImageData(Image image) {
+        if (image == null) {
+            return;
+        }
+        
+        try {
+            // 将Image转换为Bitmap
+            Bitmap bitmap = imageToBitmap(image);
+            if (bitmap == null) {
+                Log.w(TAG, "⚠️ 图像转换为Bitmap失败");
+                return;
+            }
+            
+            // 记录原始图像信息
+            long originalSize = bitmap.getByteCount();
+            Log.v(TAG, String.format("📸 原始图像 - 尺寸: %dx%d, 原始大小: %.1fKB, 格式: %s", 
+                bitmap.getWidth(), bitmap.getHeight(), originalSize / 1024.0f, bitmap.getConfig()));
+            
+            // 压缩为WebP格式
+            byte[] webpData = compressToWebP(bitmap);
+            if (webpData == null) {
+                Log.w(TAG, "⚠️ WebP压缩失败");
+                bitmap.recycle();
+                return;
+            }
+            
+            // 计算压缩比
+            float compressionRatio = (float) webpData.length / originalSize * 100;
+            
+            // 📷 每个摄像头帧都输出详细日志（像音频一样）
+            long frameNum = frameCount.incrementAndGet();
+            totalDataSize.addAndGet(webpData.length);
+            
+            Log.i(TAG, String.format("📷 摄像头帧 Frame #%d | 尺寸: %dx%d | 原始: %.1fKB | WebP: %.1fKB | 压缩率: %.1f%% | WebSocket: %s | 时间: %dms", 
+                frameNum, bitmap.getWidth(), bitmap.getHeight(), originalSize / 1024.0f, webpData.length / 1024.0f, 
+                compressionRatio, (webSocketManager != null && webSocketManager.isConnected()) ? "✅连接" : "❌断开", 
+                System.currentTimeMillis() % 100000));
+            
+            // 保存最新图像数据供WebSocket推送使用
+            synchronized (imageDataLock) {
+                latestImageData = webpData;
+            }
+            
+            // 回调原始WebP数据（保持兼容性）
+            if (cameraDataCallback != null) {
+                cameraDataCallback.onCameraData(webpData);
+            }
+            
+            // 每50帧输出统计信息（约2秒，因为40ms间隔）
+            if (frameNum % 50 == 0) {
+                long currentTime = System.currentTimeMillis();
+                if (captureStartTime > 0) {
+                    float timeDiff = (currentTime - captureStartTime) / 1000.0f;
+                    float fps = frameNum / timeDiff;
+                    Log.i(TAG, String.format("📊 摄像头统计 | 帧数: %d | FPS: %.1f | 累计: %.1f MB | 平均压缩率: %.1f%%", 
+                           frameNum, fps, totalDataSize.get() / 1024.0f / 1024.0f, 
+                           (totalDataSize.get() * 100.0f) / (frameNum * originalSize)));
+                }
+            }
+            
+            bitmap.recycle();
+            
+        } catch (Exception e) {
+            Log.e(TAG, "❌ 处理摄像头图像数据异常", e);
+        }
+    }
+    
+    /**
+     * 将Image转换为Bitmap
+     */
+    private Bitmap imageToBitmap(Image image) {
+        try {
+            Image.Plane[] planes = image.getPlanes();
+            ByteBuffer buffer = planes[0].getBuffer();
+            byte[] bytes = new byte[buffer.remaining()];
+            buffer.get(bytes);
+            return BitmapFactory.decodeByteArray(bytes, 0, bytes.length);
+            
+        } catch (Exception e) {
+            Log.e(TAG, "❌ Image转Bitmap失败", e);
+            return null;
         }
     }
     

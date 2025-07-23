@@ -5,7 +5,7 @@ plugins {
 
 android {
     namespace 'com.example.omnicontrol'
-    compileSdk 35
+    compileSdk 36
 
     defaultConfig {
         applicationId "com.example.omnicontrol"
@@ -33,6 +33,7 @@ android {
     buildFeatures {
         viewBinding true
     }
+    buildToolsVersion '36.0.0'
 }
 
 dependencies {

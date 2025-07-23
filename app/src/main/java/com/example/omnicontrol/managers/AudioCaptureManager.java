@@ -96,35 +96,58 @@ public class AudioCaptureManager {
             );
             
             if (minBufferSize == AudioRecord.ERROR || minBufferSize == AudioRecord.ERROR_BAD_VALUE) {
-                Log.e(TAG, "Invalid buffer size");
+                Log.e(TAG, "❌ 无效的音频缓冲区大小: " + minBufferSize);
                 return;
             }
             
-            // 创建AudioRecord
+            Log.i(TAG, "🎤 音频参数初始化 - 采样率: " + SAMPLE_RATE + "Hz, 缓冲区: " + minBufferSize + " bytes");
+            
+            // 延迟创建AudioRecord到权限获取后
+            
+        } catch (Exception e) {
+            Log.e(TAG, "❌ 音频参数初始化失败", e);
+            audioRecord = null;
+        }
+    }
+    
+    /**
+     * 创建AudioRecord实例（权限检查后调用）
+     */
+    private boolean createAudioRecord() {
+        try {
+            // 检查权限
             if (ActivityCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) 
-                == PackageManager.PERMISSION_GRANTED) {
-                
-                audioRecord = new AudioRecord(
-                    MediaRecorder.AudioSource.MIC,
-                    SAMPLE_RATE,
-                    CHANNEL_CONFIG,
-                    AUDIO_FORMAT,
-                    minBufferSize * 2 // 使用2倍缓冲区
-                );
-                
-                if (audioRecord.getState() == AudioRecord.STATE_INITIALIZED) {
-                    Log.d(TAG, String.format("AudioRecord initialized: sample rate=%d, buffer size=%d", 
-                        SAMPLE_RATE, minBufferSize));
-                } else {
-                    Log.e(TAG, "AudioRecord initialization failed");
-                    audioRecord = null;
-                }
+                != PackageManager.PERMISSION_GRANTED) {
+                Log.e(TAG, "❌ 麦克风权限未授予，无法创建AudioRecord");
+                return false;
+            }
+            
+            // 创建AudioRecord
+            audioRecord = new AudioRecord(
+                MediaRecorder.AudioSource.MIC,
+                SAMPLE_RATE,
+                CHANNEL_CONFIG,
+                AUDIO_FORMAT,
+                minBufferSize * 2 // 使用2倍缓冲区
+            );
+            
+            if (audioRecord.getState() == AudioRecord.STATE_INITIALIZED) {
+                Log.i(TAG, "✅ AudioRecord创建成功 - 采样率: " + SAMPLE_RATE + "Hz, 缓冲区: " + (minBufferSize * 2) + " bytes");
+                return true;
             } else {
-                Log.e(TAG, "Audio record permission not granted");
+                Log.e(TAG, "❌ AudioRecord初始化失败，状态: " + audioRecord.getState());
+                audioRecord.release();
+                audioRecord = null;
+                return false;
             }
             
         } catch (Exception e) {
-            Log.e(TAG, "Error initializing AudioRecord", e);
+            Log.e(TAG, "❌ 创建AudioRecord异常", e);
+            if (audioRecord != null) {
+                audioRecord.release();
+                audioRecord = null;
+            }
+            return false;
         }
     }
     
@@ -144,11 +167,8 @@ public class AudioCaptureManager {
         // 设置推送标记
         enableWebSocketPush = true;
         
-        // 自动开始录音（如果还未开始）
-        if (!isRecording) {
-            startRecording();
-            Log.i(TAG, "🎤 自动开始录音采集");
-        }
+        // 注意：不在这里调用startRecording()防止循环调用
+        // 调用方应该先调用startRecording()再调用enableWebSocketPush()
         
         // 启动后台传输定时器（每40ms）
         startAudioSendTimer();
@@ -279,33 +299,58 @@ public class AudioCaptureManager {
     }
     public void startRecording() {
         if (isRecording) {
-            Log.w(TAG, "Audio recording already started");
-            return;
-        }
-        
-        if (audioRecord == null) {
-            Log.e(TAG, "AudioRecord not initialized");
-            if (audioDataCallback != null) {
-                audioDataCallback.onError("音频录制器未初始化");
-            }
+            Log.w(TAG, "🎤 录音已在进行中");
             return;
         }
         
         // 检查权限
         if (ActivityCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) 
             != PackageManager.PERMISSION_GRANTED) {
-            Log.e(TAG, "Audio record permission not granted");
+            Log.e(TAG, "❌ 麦克风权限未授予");
             if (audioDataCallback != null) {
                 audioDataCallback.onError("麦克风权限未授予");
             }
             return;
         }
         
+        // 如果AudioRecord未创建，现在创建
+        if (audioRecord == null) {
+            Log.i(TAG, "📝 权限检查通过，开始创建AudioRecord");
+            if (!createAudioRecord()) {
+                Log.e(TAG, "❌ AudioRecord创建失败");
+                if (audioDataCallback != null) {
+                    audioDataCallback.onError("音频录制器创建失败");
+                }
+                return;
+            }
+        }
+        
         try {
-            // 启用WebSocket推送（如果WebSocket管理器可用）
-            if (webSocketManager != null && webSocketManager.isConnected()) {
-                enableWebSocketPush();
-            }    
+            // WebSocket连接状态检查和初始化
+            if (webSocketManager != null) {
+                Log.i(TAG, "🌐 WebSocket状态检查 - 连接状态: " + (webSocketManager.isConnected() ? "✅已连接" : "❌断开"));
+                
+                if (!webSocketManager.isConnected()) {
+                    Log.i(TAG, "🔄 WebSocket未连接，尝试重新连接...");
+                    webSocketManager.connect();
+                    
+                    // 等待连接建立（最多3秒）
+                    new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(() -> {
+                        boolean connected = webSocketManager.isConnected();
+                        Log.i(TAG, "🔍 WebSocket连接结果: " + (connected ? "✅成功" : "❌失败"));
+                        if (connected) {
+                            enableWebSocketPush();
+                            Log.i(TAG, "🚀 音频WebSocket推送已启用");
+                        }
+                    }, 3000);
+                } else {
+                    enableWebSocketPush();
+                    Log.i(TAG, "🚀 音频WebSocket推送已启用（现有连接）");
+                }
+            } else {
+                Log.w(TAG, "⚠️ WebSocket管理器为null，音频数据无法推送");
+            }
+            
             // 启动录音线程
             startRecordingThread();
             
@@ -313,10 +358,17 @@ public class AudioCaptureManager {
             audioRecord.startRecording();
             isRecording = true;
             
-            Log.i(TAG, "🎤 音频录制启动成功 - WebSocket推送已初始化");
+            Log.i(TAG, "🎤 音频录制启动成功 - 状态: ✅录音中, WebSocket: " + 
+                (webSocketManager != null && webSocketManager.isConnected() ? "✅连接" : "❌断开"));
+            
+            // 重置统计数据
+            audioPacketCount.set(0);
+            totalAudioDataSize.set(0);
+            lastLogTime = System.currentTimeMillis();
             
         } catch (Exception e) {
-            Log.e(TAG, "Failed to start audio recording", e);
+            Log.e(TAG, "❌ 启动音频录制失败", e);
+            isRecording = false;
             if (audioDataCallback != null) {
                 audioDataCallback.onError("启动音频录制失败: " + e.getMessage());
             }
@@ -453,6 +505,7 @@ public class AudioCaptureManager {
         // 计算音频数据的统计信息
         int maxAmplitude = 0;
         long sum = 0;
+        int samples = length / 2; // 16位PCM，每个样本2字节
         
         // 将字节数组转换为short数组进行分析
         for (int i = 0; i < length - 1; i += 2) {
@@ -462,25 +515,32 @@ public class AudioCaptureManager {
             sum += amplitude;
         }
         
-        int avgAmplitude = (int) (sum / (length / 2));
+        int avgAmplitude = samples > 0 ? (int) (sum / samples) : 0;
         
         // 计算音量百分比 (0-100%)
         int volumePercent = (int) ((maxAmplitude / 32768.0) * 100);
         
         // 判断音频活动状态
-        String activityStatus = volumePercent > 10 ? "有声音" : "静音";
+        String activityStatus = volumePercent > 10 ? "🔊有声音" : "🔇静音";
+        String websocketStatus = (webSocketManager != null && webSocketManager.isConnected()) ? "✅连接" : "❌断开";
         
-        // 实时日志输出
-        Log.i(TAG, String.format("[麦克风实时数据] 数据长度: %d bytes, 最大振幅: %d, 平均振幅: %d, 音量: %d%%, 状态: %s", 
-            length, maxAmplitude, avgAmplitude, volumePercent, activityStatus));
+        // 📢 每个音频数据包都输出日志（像屏幕共享一样）
+        long packetNum = audioPacketCount.incrementAndGet();
+        totalAudioDataSize.addAndGet(length);
+        
+        Log.i(TAG, String.format("🎤 音频数据 Packet #%d | 长度: %d bytes | 样本: %d | 最大振幅: %d | 平均振幅: %d | 音量: %d%% | %s | WebSocket: %s | 时间: %dms", 
+            packetNum, length, samples, maxAmplitude, avgAmplitude, volumePercent, activityStatus, websocketStatus, System.currentTimeMillis() % 100000));
             
-        // 每秒输出一次详细统计信息
-        if (System.currentTimeMillis() - lastLogTime > 1000) {
-            Log.d(TAG, String.format("[麦克风统计] 采样率: %d Hz, 声道: %s, 格式: 16位PCM, 缓冲区: %d bytes", 
-                SAMPLE_RATE, 
-                CHANNEL_CONFIG == AudioFormat.CHANNEL_IN_MONO ? "单声道" : "立体声", 
-                minBufferSize));
-            lastLogTime = System.currentTimeMillis();
+        // 每50个包输出一次详细统计信息（约2秒，因为40ms间隔）
+        if (packetNum % 50 == 0) {
+            long currentTime = System.currentTimeMillis();
+            if (lastStatsTime > 0) {
+                float timeDiff = (currentTime - lastStatsTime) / 1000.0f;
+                float packetsPerSec = 50 / timeDiff;
+                Log.i(TAG, String.format("📊 音频统计 | 包数: %d | 速率: %.1f包/秒 | 累计: %.1f KB | 采样率: %dHz | 格式: 16位PCM单声道", 
+                       packetNum, packetsPerSec, totalAudioDataSize.get() / 1024.0f, SAMPLE_RATE));
+            }
+            lastStatsTime = currentTime;
         }
     }
     
