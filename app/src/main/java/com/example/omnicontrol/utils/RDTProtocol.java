@@ -22,16 +22,19 @@ public class RDTProtocol {
             // 创建完整消息：信号类型(4字节) + 数据长度(4字节) + 数据内容
             RDTMessage fullMessage = new RDTMessage();
             fullMessage.writeInt(signalType);        // 信号类型
-            fullMessage.writeInt(messageData.length); // 数据长度
-            fullMessage.writeRawBytes(messageData);   // 数据内容（不带长度前缀）
-            
             byte[] result = fullMessage.getData();
+
             fullMessage.close();
-            
-            Log.d(TAG, String.format("创建RDT消息: 信号类型=0x%X, 数据长度=%d, 总长度=%d", 
+
+            byte[] combinedResult = new byte[result.length + messageData.length];
+
+            System.arraycopy(result, 0, combinedResult, 0, result.length);
+            System.arraycopy(messageData, 0, combinedResult, result.length, messageData.length);
+
+            Log.d(TAG, String.format("创建RDT消息: 信号类型=0x%X, 数据长度=%d, 总长度=%d",
                 signalType, messageData.length, result.length));
             
-            return result;
+            return combinedResult;
             
         } catch (Exception e) {
             Log.e(TAG, "创建RDT消息失败", e);

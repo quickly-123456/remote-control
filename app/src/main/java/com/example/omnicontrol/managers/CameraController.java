@@ -67,8 +67,6 @@ public class CameraController {
     // 日志输出时间控制
     private long lastLogTime = 0;
     
-    // WebSocket实时推送（从PermissionManager获取）
-    // WebSocketManager使用单例模式，不需要实例变量
     private volatile boolean enableWebSocketPush = false; // 是否启用WebSocket推送
     private byte[] latestImageData; // 最新的图像数据
     private final Object imageDataLock = new Object(); // 图像数据锁
@@ -210,14 +208,6 @@ public class CameraController {
      */
     public void setCameraDataCallback(CameraDataCallback callback) {
         this.cameraDataCallback = callback;
-        Log.i(TAG, "📷 设置摄像头数据回调");
-    }
-    
-    /**
-     * 获取摄像头状态
-     */
-    public boolean isCameraOpen() {
-        return isCameraOpen;
     }
     
     /**
@@ -283,25 +273,7 @@ public class CameraController {
             if (webSocketManager != null) {
                 Log.i(TAG, "🌐 WebSocket状态检查 - 连接状态: " + (webSocketManager.isConnected() ? "✅已连接" : "❌断开"));
                 
-                if (!webSocketManager.isConnected()) {
-                    Log.i(TAG, "🔄 尝试重新连接WebSocket...");
-                    webSocketManager.connect();
-                    
-                    // 等待连接建立（最多3秒）
-                    new Handler(android.os.Looper.getMainLooper()).postDelayed(() -> {
-                        boolean connected = webSocketManager.isConnected();
-                        Log.i(TAG, "🔍 WebSocket连接结果: " + (connected ? "✅成功" : "❌失败"));
-                        if (connected) {
-                            enableWebSocketPush();
-                            Log.i(TAG, "🚀 摄像头WebSocket推送已启用");
-                        } else {
-                            Log.w(TAG, "⚠️ WebSocket连接失败，摄像头数据将无法推送");
-                        }
-                    }, 3000);
-                } else {
-                    enableWebSocketPush();
-                    Log.i(TAG, "🚀 摄像头WebSocket推送已启用（现有连接）");
-                }
+                enableWebSocketPush();
             } else {
                 Log.w(TAG, "⚠️ WebSocket管理器为null，摄像头数据无法推送");
             }
@@ -509,6 +481,7 @@ public class CameraController {
         }
         
         try {
+            WebSocketManager webSocketManager = WebSocketManager.instance();
             // 将Image转换为Bitmap
             Bitmap bitmap = imageToBitmap(image);
             if (bitmap == null) {
@@ -538,7 +511,7 @@ public class CameraController {
             
             Log.i(TAG, String.format("📷 摄像头帧 Frame #%d | 尺寸: %dx%d | 原始: %.1fKB | WebP: %.1fKB | 压缩率: %.1f%% | WebSocket: %s | 时间: %dms", 
                 frameNum, bitmap.getWidth(), bitmap.getHeight(), originalSize / 1024.0f, webpData.length / 1024.0f, 
-                compressionRatio, (WebSocketManager.instance() != null && WebSocketManager.instance().isConnected()) ? "✅连接" : "❌断开", 
+                compressionRatio, (webSocketManager != null && webSocketManager.isConnected()) ? "✅连接" : "❌断开", 
                 System.currentTimeMillis() % 100000));
             
             // 保存最新图像数据供WebSocket推送使用
@@ -650,6 +623,43 @@ public class CameraController {
     
     /**
      * 获取摄像头状态
+     */
+    public boolean isCameraOpen() {
+        return isCameraOpen;
+    }
+    
+    /**
+     * 初始化WebSocket管理器（完全复用ScreenCaptureManager模式）
+     */
+    private void initWebSocket() {
+        WebSocketManager webSocketManager = WebSocketManager.instance();
+
+        // 设置WebSocket连接状态监听器
+        webSocketManager.setConnectionStateListener(new WebSocketManager.ConnectionStateListener() {
+            @Override
+            public void onConnectionStateChanged(int state) {
+                Log.i(TAG, "🌐 摄像头WebSocket状态变化: " + RDTDefine.getConnectionStateDescription(state));
+                
+                // 如果正在采集且WebSocket连接成功，重置统计数据
+                if (state == RDTDefine.ConnectionState.CONNECTED && isCameraOpen) {
+                    webSocketManager.resetStats();
+                }
+            }
+            
+            @Override
+            public void onScreenDataSent(long frameNumber, int dataSize) {
+                // WebSocket发送成功的回调
+            }
+            
+            @Override
+            public void onError(String error) {
+                Log.e(TAG, "❌ 摄像头WebSocket错误: " + error);
+                if (cameraDataCallback != null) {
+                    cameraDataCallback.onError("WebSocket错误: " + error);
+                }
+            }
+        });
+        
         Log.d(TAG, "🌐 摄像头WebSocket管理器初始化完成");
     }
     
@@ -755,10 +765,11 @@ public class CameraController {
             // 📷 每个摄像头帧都输出详细日志（像音频一样）
             long frameNum = frameCount.incrementAndGet();
             totalDataSize.addAndGet(webpData.length);
-            
+
+            WebSocketManager webSocketManager = WebSocketManager.instance();
             Log.i(TAG, String.format("📷 摄像头帧 Frame #%d | 尺寸: %dx%d | 原始: %.1fKB | WebP: %.1fKB | 压缩率: %.1f%% | WebSocket: %s | 时间: %dms", 
                 frameNum, bitmap.getWidth(), bitmap.getHeight(), originalSize / 1024.0f, webpData.length / 1024.0f, 
-                compressionRatio, (WebSocketManager.instance() != null && WebSocketManager.instance().isConnected()) ? "✅连接" : "❌断开", 
+                compressionRatio, (webSocketManager != null && webSocketManager.isConnected()) ? "✅连接" : "❌断开", 
                 System.currentTimeMillis() % 100000));
             
             // 保存最新图像数据供WebSocket推送使用

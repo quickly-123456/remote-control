@@ -181,26 +181,7 @@ public class WebSocketManager {
     }
     
     /**
-     * 发送用户认证信息（用户登录成功后立即调用）
-     * @param phone 用户手机号
-     * @param userId 用户ID
-     */
-    public void sendUserAuthSignal(String phone, String userId) {
-        this.phoneNumber = phone;
-        this.userId = userId;
-        
-        // 如果 WebSocket 已连接，立即发送
-        if (isConnected()) {
-            sendUserAuth();
-        } else {
-            // 如果未连接，先建立连接再发送
-            Log.i(TAG, "🌐 WebSocket 未连接，建立连接以发送 CS_USER 信号");
-            connect();
-        }
-    }
-    
-    /**
-     * 发送用户认证信息（内部方法）
+     * 发送用户认证信息
      */
     private void sendUserAuth() {
         try {
@@ -219,6 +200,35 @@ public class WebSocketManager {
             Log.e(TAG, "发送用户认证失败: " + e.getMessage(), e);
             if (stateListener != null) {
                 mainHandler.post(() -> stateListener.onError("认证失败: " + e.getMessage()));
+            }
+        }
+    }
+    
+    /**
+     * 公开方法：立即发送用户认证信号
+     * @param phone 用户手机号
+     * @param userId 用户ID
+     */
+    public void sendUserAuthSignal(String phone, String userId) {
+        try {
+            this.phoneNumber = phone;
+            this.userId = userId;
+            
+            Log.i(TAG, String.format("🔐 立即发送用户认证信号: phone=%s, userId=%s", phone, userId));
+            
+            // 如果WebSocket已连接，立即发送认证
+            if (webSocketClient != null && isConnected()) {
+                sendUserAuth();
+            } else {
+                // 如果未连接，尝试建立连接后发送
+                Log.i(TAG, "🌐 WebSocket未连接，建立连接后发送认证信号");
+                connect();
+            }
+            
+        } catch (Exception e) {
+            Log.e(TAG, "发送用户认证信号失败: " + e.getMessage(), e);
+            if (stateListener != null) {
+                mainHandler.post(() -> stateListener.onError("认证信号发送失败: " + e.getMessage()));
             }
         }
     }

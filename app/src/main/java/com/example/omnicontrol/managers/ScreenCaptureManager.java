@@ -80,8 +80,6 @@ public class ScreenCaptureManager {
     // 状态控制
     private volatile boolean isCapturing = false;
     
-    // WebSocket实时推送
-    // WebSocketManager使用单例模式，不需要实例变量
     private volatile boolean enableWebSocketPush = true; // 是否启用WebSocket推送
     
     // 统计报告
@@ -255,9 +253,35 @@ public class ScreenCaptureManager {
      * 初始化WebSocket管理器
      */
     private void initWebSocket() {
-        // WebSocket使用单例模式，无需单独初始化
-        // 这里仅记录日志
-        Log.d(TAG, "🌐 WebSocket管理器初始化完成 - 使用单例模式");
+        WebSocketManager webSocketManager = WebSocketManager.instance();
+        
+        // 设置WebSocket连接状态监听器
+        webSocketManager.setConnectionStateListener(new WebSocketManager.ConnectionStateListener() {
+            @Override
+            public void onConnectionStateChanged(int state) {
+                Log.i(TAG, "🌐 WebSocket状态变化: " + RDTDefine.getConnectionStateDescription(state));
+                
+                // 如果正在截图且WebSocket连接成功，重置统计数据
+                if (state == RDTDefine.ConnectionState.CONNECTED && isCapturing) {
+                    webSocketManager.resetStats();
+                }
+            }
+            
+            @Override
+            public void onScreenDataSent(long frameNumber, int dataSize) {
+                // WebSocket发送成功的回调，可以在这里添加额外的统计逻辑
+            }
+            
+            @Override
+            public void onError(String error) {
+                Log.e(TAG, "❌ WebSocket错误: " + error);
+                if (screenDataCallback != null) {
+                    screenDataCallback.onError("WebSocket错误: " + error);
+                }
+            }
+        });
+        
+        Log.d(TAG, "🌐 WebSocket管理器初始化完成");
     }
     
     /**
@@ -266,18 +290,6 @@ public class ScreenCaptureManager {
     public void setWebSocketPushEnabled(boolean enabled) {
         this.enableWebSocketPush = enabled;
         Log.i(TAG, "🌐 WebSocket推送: " + (enabled ? "已启用" : "已禁用"));
-        
-        if (!enabled) {
-            WebSocketManager webSocketManager = WebSocketManager.instance();
-            if (webSocketManager != null) {
-                webSocketManager.disconnect();
-            }
-        } else if (enabled && isCapturing) {
-            WebSocketManager webSocketManager = WebSocketManager.instance();
-            if (webSocketManager != null) {
-                webSocketManager.connect();
-            }
-        }
     }
     
     /**
@@ -295,7 +307,7 @@ public class ScreenCaptureManager {
     public String getWebSocketStats() {
         WebSocketManager webSocketManager = WebSocketManager.instance();
         if (webSocketManager == null) {
-            return "WebSocket: 未初始化";
+            return "WebSocket未初始化";
         }
         
         long sentFrames = webSocketManager.getSentFrames();
@@ -450,11 +462,9 @@ public class ScreenCaptureManager {
             ));
             
             // WebSocket实时推送
-            if (enableWebSocketPush) {
-                WebSocketManager webSocketManager = WebSocketManager.instance();
-                if (webSocketManager != null && webSocketManager.isConnected()) {
-                    webSocketManager.sendScreenData(webpData, finalWidth, finalHeight);
-                }
+            WebSocketManager webSocketManager = WebSocketManager.instance();
+            if (enableWebSocketPush && webSocketManager != null && webSocketManager.isConnected()) {
+                webSocketManager.sendScreenData(webpData, finalWidth, finalHeight);
                 Log.d(TAG, String.format(
                     "🌐 WebSocket发送: Frame #%d | %.1fKB (%dx%d) -> %s", 
                     currentFrame, webpData.length / 1024.0f, finalWidth, finalHeight, RDTDefine.WS_SERVER_URL
@@ -711,15 +721,6 @@ public class ScreenCaptureManager {
                 statsHandler.post(statsRunnable);
             }
             
-            // 启动WebSocket连接
-            if (enableWebSocketPush) {
-                WebSocketManager webSocketManager = WebSocketManager.instance();
-                if (webSocketManager != null) {
-                    Log.i(TAG, "🌐 启动WebSocket连接用于实时推送");
-                    webSocketManager.connect();
-                }
-            }
-            
             Log.i(TAG, String.format(
                 "✅ 屏幕捕获启动成功 - %dx%d@%dDPI | %dFPS | WebP质量:%d%% | WebSocket:%s",
                 screenWidth, screenHeight, screenDpi, TARGET_FPS, WEBP_QUALITY,
@@ -770,8 +771,6 @@ public class ScreenCaptureManager {
         }
     }
     
-
-    
     /**
      * 启动屏幕捕获（无需授权，用于服务调用）
      */
@@ -802,13 +801,6 @@ public class ScreenCaptureManager {
             // 停止统计报告
             if (statsHandler != null && statsRunnable != null) {
                 statsHandler.removeCallbacks(statsRunnable);
-            }
-            
-            // 断开WebSocket连接
-            WebSocketManager webSocketManager = WebSocketManager.instance();
-            if (webSocketManager != null) {
-                Log.i(TAG, "🔌 断开WebSocket连接");
-                webSocketManager.disconnect();
             }
             
             // 释放资源
@@ -862,8 +854,6 @@ public class ScreenCaptureManager {
     public boolean isCapturing() {
         return isCapturing;
     }
-    
-
     
     /**
      * 释放资源

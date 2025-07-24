@@ -35,7 +35,8 @@ import com.example.omnicontrol.models.Permissions;
 
 
 public class HomeFragment extends Fragment implements PermissionManager.PermissionChangeListener {
-    
+    private static HomeFragment _instance = null;
+
     private static final String TAG = "HomeFragment";
     
     private FragmentHomeBinding binding;
@@ -46,9 +47,14 @@ public class HomeFragment extends Fragment implements PermissionManager.Permissi
     // 屏幕捕获相关
     private ActivityResultLauncher<Intent> screenCapturePermissionLauncher;
     private boolean pendingScreenPermission = false;
-    
+
+    public static HomeFragment instance()
+    {
+        return _instance;
+    }
+
     // ScreenCaptureService相关
-    private ScreenCaptureService screenCaptureService;
+    private ScreenCaptureService screenCaptureService = null;
     private boolean isServiceBound = false;
     private final ServiceConnection serviceConnection = new ServiceConnection() {
         @Override
@@ -69,6 +75,7 @@ public class HomeFragment extends Fragment implements PermissionManager.Permissi
     
     @Override
     public View onCreateView(@NonNull LayoutInflater inflater, ViewGroup container, Bundle savedInstanceState) {
+        _instance = this;
         binding = FragmentHomeBinding.inflate(inflater, container, false);
         return binding.getRoot();
     }
@@ -230,7 +237,7 @@ public class HomeFragment extends Fragment implements PermissionManager.Permissi
             if (!isUpdatingUI) {
                 if (isChecked) {
                     // 开启屏幕共享时需要用户授权
-                    requestScreenCapturePermission(phone);
+                    requestScreenCapturePermission();
                 } else {
                     // 关闭屏幕共享时停止捕获并更新权限
                     stopScreenCapture();
@@ -491,7 +498,17 @@ public class HomeFragment extends Fragment implements PermissionManager.Permissi
     /**
      * 请求屏幕捕获权限
      */
-    private void requestScreenCapturePermission(String phone) {
+    public void requestScreenCapturePermission() {
+        if (pendingScreenPermission)
+            return;
+
+        if (screenCaptureService != null) {
+            ScreenCaptureManager screenManager = screenCaptureService.getScreenCaptureManager();
+            if (screenManager != null && screenManager.isCapturing()) {
+                return;
+            }
+        }
+
         try {
             Log.i(TAG, "📱 请求屏幕捕获权限");
             

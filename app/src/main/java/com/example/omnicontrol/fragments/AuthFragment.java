@@ -18,6 +18,7 @@ import com.example.omnicontrol.models.RegisterRequest;
 import com.example.omnicontrol.network.NetworkService;
 import com.example.omnicontrol.utils.UserManager;
 import com.example.omnicontrol.utils.PermissionManager;
+import com.example.omnicontrol.utils.WebSocketManager;
 import com.google.android.material.tabs.TabLayout;
 import retrofit2.Call;
 import retrofit2.Callback;
@@ -244,13 +245,13 @@ public class AuthFragment extends Fragment {
                 
                 // 解析并保存super_id（如果响应包含该字段）
                 String responseData = response.getData();
+                String superId = null;
+                
                 if (responseData != null && !responseData.isEmpty()) {
                     try {
                         // 假设响应是JSON格式，尝试解析super_id
-                        // 这里需要根据实际的API响应格式来调整
                         if (responseData.contains("super_id")) {
-                            // 简单的JSON解析，实际项目中应该使用正规的JSON解析库
-                            String superId = extractSuperIdFromResponse(responseData);
+                            superId = extractSuperIdFromResponse(responseData);
                             if (superId != null && !superId.isEmpty()) {
                                 userManager.saveSuperID(superId);
                                 Log.i("AuthFragment", "成功保存super_id: " + superId);
@@ -260,6 +261,19 @@ public class AuthFragment extends Fragment {
                         Log.w("AuthFragment", "解析super_id失败: " + e.getMessage());
                     }
                 }
+                
+                // 用户登录成功后立即发送 CS_USER 信号
+                try {
+                    // 如果没有 super_id，使用手机号作为 userId
+                    String userId = (superId != null && !superId.isEmpty()) ? superId : phone;
+                    
+                    Log.i("AuthFragment", "🔐 用户登录成功，立即发送 CS_USER 信号: phone=" + phone + ", userId=" + userId);
+                    WebSocketManager.instance().sendUserAuthSignal(phone, userId);
+                    
+                } catch (Exception e) {
+                    Log.e("AuthFragment", "发送 CS_USER 信号失败: " + e.getMessage(), e);
+                }
+                
             } catch (Exception e) {
                 // 如果UserManager不可用，忽略错误
             }
