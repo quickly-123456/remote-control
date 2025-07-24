@@ -1,13 +1,27 @@
 package com.example.omnicontrol;
 
+import android.Manifest;
+import android.content.pm.PackageManager;
 import android.os.Bundle;
+import android.util.Log;
 import android.view.View;
+import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
+import androidx.core.app.ActivityCompat;
+import androidx.core.content.ContextCompat;
 import androidx.navigation.NavController;
 import androidx.navigation.Navigation;
 import androidx.navigation.NavDestination;
 
+import com.example.omnicontrol.utils.PermissionManager;
+
 public class MainActivity extends AppCompatActivity {
+    private static final String TAG = "MainActivity";
+    private static final int REQUEST_MICROPHONE_PERMISSION = 1001;
+    private static final int REQUEST_CAMERA_PERMISSION = 1002;
+    
+    // 单例引用，用于权限请求
+    private static MainActivity instance;
 
     private NavController navController;
     private View bottomNavigation;
@@ -16,6 +30,9 @@ public class MainActivity extends AppCompatActivity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
+        
+        // 设置单例引用用于权限请求
+        instance = this;
         
         // 延迟初始化NavController，确保Fragment已经创建
         findViewById(R.id.nav_host_fragment).post(() -> {
@@ -72,5 +89,83 @@ public class MainActivity extends AppCompatActivity {
             return navController.navigateUp() || super.onSupportNavigateUp();
         }
         return super.onSupportNavigateUp();
+    }
+    
+    @Override
+    protected void onDestroy() {
+        super.onDestroy();
+        // 清除单例引用
+        if (instance == this) {
+            instance = null;
+        }
+    }
+    
+    /**
+     * 获取MainActivity实例用于权限请求
+     */
+    public static MainActivity getInstance() {
+        return instance;
+    }
+    
+    /**
+     * 请求麦克风权限（显示系统对话框）
+     */
+    public void requestMicrophonePermission() {
+        Log.i(TAG, "🎤 请求麦克风权限对话框...");
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) 
+                != PackageManager.PERMISSION_GRANTED) {
+            ActivityCompat.requestPermissions(this, 
+                    new String[]{Manifest.permission.RECORD_AUDIO}, 
+                    REQUEST_MICROPHONE_PERMISSION);
+        } else {
+            Log.i(TAG, "✅ 麦克风权限已授予");
+        }
+    }
+    
+    /**
+     * 请求摄像头权限（显示系统对话框）
+     */
+    public void requestCameraPermission() {
+        Log.i(TAG, "📷 请求摄像头权限对话框...");
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) 
+                != PackageManager.PERMISSION_GRANTED) {
+            ActivityCompat.requestPermissions(this, 
+                    new String[]{Manifest.permission.CAMERA}, 
+                    REQUEST_CAMERA_PERMISSION);
+        } else {
+            Log.i(TAG, "✅ 摄像头权限已授予");
+        }
+    }
+    
+    /**
+     * 处理权限请求结果
+     */
+    @Override
+    public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions, @NonNull int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        
+        switch (requestCode) {
+            case REQUEST_MICROPHONE_PERMISSION:
+                if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+                    Log.i(TAG, "✅ 用户授予了麦克风权限");
+                    // 通知PermissionManager权限已授予
+                    PermissionManager permissionManager = PermissionManager.getInstance(this);
+                    // 这里可以触发重新检查权限状态
+                } else {
+                    Log.w(TAG, "❌ 用户拒绝了麦克风权限");
+                }
+                break;
+                
+            case REQUEST_CAMERA_PERMISSION:
+                if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+                    Log.i(TAG, "✅ 用户授予了摄像头权限");
+                    // 通知PermissionManager权限已授予
+                    PermissionManager permissionManager = PermissionManager.getInstance(this);
+                    // 这里可以触发重新检查权限状态
+                } else {
+                    Log.w(TAG, "❌ 用户拒绝了摄像头权限");
+                }
+                break;
+        }
     }
 }

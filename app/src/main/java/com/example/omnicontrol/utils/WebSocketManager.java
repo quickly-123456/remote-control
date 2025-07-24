@@ -17,6 +17,7 @@ import java.util.concurrent.atomic.AtomicLong;
  * 用于实时推送屏幕数据到远程服务器
  */
 public class WebSocketManager {
+    private static WebSocketManager _webSocketManager = null;
     private static final String TAG = "WebSocketManager";
     
     private WebSocketClient webSocketClient;
@@ -46,11 +47,17 @@ public class WebSocketManager {
     public WebSocketManager() {
         mainHandler = new Handler(Looper.getMainLooper());
     }
-    
+
+    public static WebSocketManager instance()
+    {
+        if (_webSocketManager == null)
+            _webSocketManager = new WebSocketManager();
+        return _webSocketManager;
+    }
     /**
      * 带Context的构造函数，用于获取用户信息
      */
-    public WebSocketManager(Context context) {
+    private WebSocketManager(Context context) {
         this.context = context;
         mainHandler = new Handler(Looper.getMainLooper());
     }
@@ -297,8 +304,8 @@ public class WebSocketManager {
         try {
             // 使用RDTProtocol封装屏幕数据
             RDTMessage message = new RDTMessage();
-            message.writeInt(width);
-            message.writeInt(height);
+            //message.writeInt(width);
+            //message.writeInt(height);
             message.writeInt((int) System.currentTimeMillis());
             message.writeByteArray(imageData);
             

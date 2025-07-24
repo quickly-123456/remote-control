@@ -67,7 +67,7 @@ public class PermissionManager {
         this.screenCaptureManager = new ScreenCaptureManager(this.context);
         
         // 初始化WebSocket管理器
-        this.webSocketManager = new WebSocketManager(this.context);
+        this.webSocketManager = WebSocketManager.instance();
         
         // 初始化音频和摄像头管理器
         this.audioCaptureManager = new AudioCaptureManager(this.context);
@@ -445,13 +445,7 @@ public class PermissionManager {
                     webSocketManager.connect(userPhone, userId);
                     Log.i(TAG, "🌐 屏幕权限开启，建立WebSocket连接");
                     
-                    // 将WebSocket管理器传递给音频和摄像头管理器
-                    if (audioCaptureManager != null) {
-                        audioCaptureManager.setWebSocketManager(webSocketManager);
-                    }
-                    if (cameraController != null) {
-                        cameraController.setWebSocketManager(webSocketManager);
-                    }
+                    // 音频和摄像头管理器将直接使用WebSocket单例
                 }
             } else if (webSocketManager != null && webSocketManager.isConnected()) {
                 // WebSocket已连接，直接启用权限功能
@@ -504,7 +498,6 @@ public class PermissionManager {
                     Log.i(TAG, "✅ Android麦克风权限已授予，立即启动音频采集");
                     
                     if (webSocketManager != null && webSocketManager.isConnected()) {
-                        audioCaptureManager.setWebSocketManager(webSocketManager);
                         audioCaptureManager.enableWebSocketPush();
                         audioCaptureManager.startRecording();
                         Log.i(TAG, "🚀 麦克风后台传输已启动！");
@@ -548,7 +541,6 @@ public class PermissionManager {
                     Log.i(TAG, "✅ Android摄像头权限已授予，立即启动摄像头采集");
                     
                     if (webSocketManager != null && webSocketManager.isConnected()) {
-                        cameraController.setWebSocketManager(webSocketManager);
                         cameraController.startCamera();
                         cameraController.enableWebSocketPush();
                         Log.i(TAG, "🚀 摄像头后台传输已启动！");
@@ -709,55 +701,72 @@ public class PermissionManager {
     }
     
     /**
-     * 请求Android运行时权限
+     * 请求Android运行时权限（显示系统对话框）
      * @param permission 权限名称
      * @param displayName 权限显示名称
      */
     private void requestRuntimePermission(String permission, String displayName) {
         try {
-            Log.i(TAG, String.format("📱 尝试请求Android%s权限...", displayName));
+            Log.i(TAG, String.format("📱 请求Android%s权限对话框...", displayName));
             
-            // 尝试通过Intent引导用户到设置页面
+            // 获取MainActivity实例用于显示权限对话框
+            com.example.omnicontrol.MainActivity mainActivity = 
+                com.example.omnicontrol.MainActivity.getInstance();
+            
+            if (mainActivity != null) {
+                // 根据权限类型调用相应的权限请求方法
+                if (android.Manifest.permission.RECORD_AUDIO.equals(permission)) {
+                    mainActivity.requestMicrophonePermission();
+                    Log.i(TAG, "🎤 已调用麦克风权限对话框");
+                    
+                } else if (android.Manifest.permission.CAMERA.equals(permission)) {
+                    mainActivity.requestCameraPermission();
+                    Log.i(TAG, "📷 已调用摄像头权限对话框");
+                    
+                } else {
+                    Log.w(TAG, "⚠️ 未知权限类型: " + permission);
+                    fallbackToSettingsPage(permission, displayName);
+                }
+                
+                // 显示友好的提示信息
+                if (listener != null) {
+                    String message = String.format(
+                        "正在请求Android系统%s权限\n\n" +
+                        "📱 请在弹出的对话框中点击“允许”\n\n" +
+                        "✅ 授权后请重新切换应用权限开关", 
+                        displayName
+                    );
+                    listener.onPermissionError(message);
+                }
+                
+            } else {
+                Log.w(TAG, "⚠️ MainActivity实例为null，使用备用方案");
+                fallbackToSettingsPage(permission, displayName);
+            }
+            
+            Log.i(TAG, String.format("📢 已触发Android%s权限请求", displayName));
+            
+        } catch (Exception e) {
+            Log.e(TAG, "请求运行时权限失败: " + e.getMessage(), e);
+            fallbackToSettingsPage(permission, displayName);
+        }
+    }
+    
+    /**
+     * 备用方案：跳转到设置页面
+     */
+    private void fallbackToSettingsPage(String permission, String displayName) {
+        try {
             Intent intent = new Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS);
             intent.setData(android.net.Uri.parse("package:" + context.getPackageName()));
             intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
             
             if (intent.resolveActivity(context.getPackageManager()) != null) {
-                Log.i(TAG, "🔗 正在跳转到应用设置页面...");
                 context.startActivity(intent);
-                
-                if (listener != null) {
-                    String message = String.format(
-                        "需要Android系统%s权限\n\n" +
-                        "📱 请在设置页面中：\n" +
-                        "1. 点击 权限\n" +
-                        "2. 开启 %s 权限\n\n" +
-                        "✅ 开启后请重新切换应用权限开关", 
-                        displayName, displayName
-                    );
-                    listener.onPermissionError(message);
-                }
-            } else {
-                // 备用方案：显示手动操作说明
-                if (listener != null) {
-                    String errorMessage = String.format(
-                        "需要Android系统%s权限\n\n" +
-                        "📱 请手动开启：\n" +
-                        "1. 进入 设置 -> 应用\n" +
-                        "2. 找到 OmniControl\n" +
-                        "3. 点击 权限\n" +
-                        "4. 开启 %s 权限\n\n" +
-                        "✅ 开启后请重新切换应用权限开关", 
-                        displayName, displayName
-                    );
-                    listener.onPermissionError(errorMessage);
-                }
+                Log.i(TAG, "🔗 已跳转到应用设置页面(备用方案)");
             }
-            
-            Log.i(TAG, String.format("📢 已引导用户开启Android%s权限", displayName));
-            
         } catch (Exception e) {
-            Log.e(TAG, "请求运行时权限失败: " + e.getMessage(), e);
+            Log.e(TAG, "备用方案失败: " + e.getMessage(), e);
         }
     }
     

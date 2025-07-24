@@ -44,7 +44,7 @@ public class AudioCaptureManager {
     private volatile boolean isRecording = false;
     
     // WebSocket和RDT协议相关
-    private WebSocketManager webSocketManager; // 从PermissionManager获取
+    // WebSocketManager使用单例模式，不需要实例变量
     private boolean enableWebSocketPush = false;
     private Handler audioSendHandler;
     private Runnable audioSendRunnable;
@@ -70,17 +70,6 @@ public class AudioCaptureManager {
     public AudioCaptureManager(Context context) {
         this.context = context;
         initAudioRecord();
-    }
-    
-    /**
-     * 设置WebSocket管理器（从PermissionManager获取）
-     */
-    public void setWebSocketManager(WebSocketManager webSocketManager) {
-        this.webSocketManager = webSocketManager;
-        if (webSocketManager != null && webSocketManager.isConnected()) {
-            enableWebSocketPush = true;
-            Log.i(TAG, "🌐 音频管理器连接到WebSocket");
-        }
     }
     
     /**
@@ -200,6 +189,7 @@ public class AudioCaptureManager {
                 // 详细检查每个条件状态
                 boolean recording = isRecording;
                 boolean pushEnabled = enableWebSocketPush;
+                WebSocketManager webSocketManager = WebSocketManager.instance();
                 boolean managerExists = webSocketManager != null;
                 boolean socketConnected = managerExists && webSocketManager.isConnected();
                 
@@ -264,6 +254,7 @@ public class AudioCaptureManager {
      * 发送音频数据（使用WebSocketManager的RDTProtocol）
      */
     private void sendAudioData(byte[] audioData) {
+        WebSocketManager webSocketManager = WebSocketManager.instance();
         if (webSocketManager == null || !webSocketManager.isConnected()) {
             Log.v(TAG, "⚠️ 音频数据发送被跳过 - WebSocket未连接");
             return;
@@ -327,11 +318,12 @@ public class AudioCaptureManager {
         
         try {
             // WebSocket连接状态检查和初始化
+            WebSocketManager webSocketManager = WebSocketManager.instance();
             if (webSocketManager != null) {
                 Log.i(TAG, "🌐 WebSocket状态检查 - 连接状态: " + (webSocketManager.isConnected() ? "✅已连接" : "❌断开"));
                 
                 if (!webSocketManager.isConnected()) {
-                    Log.i(TAG, "🔄 WebSocket未连接，尝试重新连接...");
+                    Log.i(TAG, "🔄 尝试重新连接WebSocket...");
                     webSocketManager.connect();
                     
                     // 等待连接建立（最多3秒）
@@ -359,7 +351,7 @@ public class AudioCaptureManager {
             isRecording = true;
             
             Log.i(TAG, "🎤 音频录制启动成功 - 状态: ✅录音中, WebSocket: " + 
-                (webSocketManager != null && webSocketManager.isConnected() ? "✅连接" : "❌断开"));
+                (WebSocketManager.instance() != null && WebSocketManager.instance().isConnected() ? "✅连接" : "❌断开"));
             
             // 重置统计数据
             audioPacketCount.set(0);
@@ -522,6 +514,7 @@ public class AudioCaptureManager {
         
         // 判断音频活动状态
         String activityStatus = volumePercent > 10 ? "🔊有声音" : "🔇静音";
+        WebSocketManager webSocketManager = WebSocketManager.instance();
         String websocketStatus = (webSocketManager != null && webSocketManager.isConnected()) ? "✅连接" : "❌断开";
         
         // 📢 每个音频数据包都输出日志（像屏幕共享一样）
