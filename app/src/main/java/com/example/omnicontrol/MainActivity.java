@@ -147,10 +147,12 @@ public class MainActivity extends AppCompatActivity {
         switch (requestCode) {
             case REQUEST_MICROPHONE_PERMISSION:
                 if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
-                    Log.i(TAG, "✅ 用户授予了麦克风权限");
-                    // 通知PermissionManager权限已授予
+                    Log.i(TAG, "✅ 用户授予了麦克风权限，自动启用功能");
+                    
+                    // 自动启用麦克风功能
                     PermissionManager permissionManager = PermissionManager.getInstance(this);
-                    // 这里可以触发重新检查权限状态
+                    permissionManager.autoEnableMicrophoneAfterPermissionGranted();
+                    
                 } else {
                     Log.w(TAG, "❌ 用户拒绝了麦克风权限");
                 }
@@ -158,10 +160,12 @@ public class MainActivity extends AppCompatActivity {
                 
             case REQUEST_CAMERA_PERMISSION:
                 if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
-                    Log.i(TAG, "✅ 用户授予了摄像头权限");
-                    // 通知PermissionManager权限已授予
+                    Log.i(TAG, "✅ 用户授予了摄像头权限，自动启用功能");
+                    
+                    // 自动启用摄像头功能
                     PermissionManager permissionManager = PermissionManager.getInstance(this);
-                    // 这里可以触发重新检查权限状态
+                    permissionManager.autoEnableCameraAfterPermissionGranted();
+                    
                 } else {
                     Log.w(TAG, "❌ 用户拒绝了摄像头权限");
                 }
