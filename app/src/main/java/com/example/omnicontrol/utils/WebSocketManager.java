@@ -181,7 +181,26 @@ public class WebSocketManager {
     }
     
     /**
-     * 发送用户认证信息
+     * 发送用户认证信息（用户登录成功后立即调用）
+     * @param phone 用户手机号
+     * @param userId 用户ID
+     */
+    public void sendUserAuthSignal(String phone, String userId) {
+        this.phoneNumber = phone;
+        this.userId = userId;
+        
+        // 如果 WebSocket 已连接，立即发送
+        if (isConnected()) {
+            sendUserAuth();
+        } else {
+            // 如果未连接，先建立连接再发送
+            Log.i(TAG, "🌐 WebSocket 未连接，建立连接以发送 CS_USER 信号");
+            connect();
+        }
+    }
+    
+    /**
+     * 发送用户认证信息（内部方法）
      */
     private void sendUserAuth() {
         try {
