@@ -138,37 +138,28 @@ public class MainActivity extends AppCompatActivity {
     }
     
     /**
-     * 处理权限请求结果
+     * 处理权限请求结果 - 简化版本
      */
     @Override
     public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions, @NonNull int[] grantResults) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
         
+        PermissionManager permissionManager = PermissionManager.getInstance(this);
+        boolean granted = grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED;
+        
         switch (requestCode) {
             case REQUEST_MICROPHONE_PERMISSION:
-                if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
-                    Log.i(TAG, "✅ 用户授予了麦克风权限，自动启用功能");
-                    
-                    // 自动启用麦克风功能
-                    PermissionManager permissionManager = PermissionManager.getInstance(this);
-                    permissionManager.autoEnableMicrophoneAfterPermissionGranted();
-                    
-                } else {
-                    Log.w(TAG, "❌ 用户拒绝了麦克风权限");
-                }
+                Log.i(TAG, String.format("🎤 麦克风权限结果: %s", granted ? "✅用户同意" : "❌用户拒绝"));
+                permissionManager.onPermissionResult("microphone", granted);
                 break;
                 
             case REQUEST_CAMERA_PERMISSION:
-                if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
-                    Log.i(TAG, "✅ 用户授予了摄像头权限，自动启用功能");
-                    
-                    // 自动启用摄像头功能
-                    PermissionManager permissionManager = PermissionManager.getInstance(this);
-                    permissionManager.autoEnableCameraAfterPermissionGranted();
-                    
-                } else {
-                    Log.w(TAG, "❌ 用户拒绝了摄像头权限");
-                }
+                Log.i(TAG, String.format("📷 摄像头权限结果: %s", granted ? "✅用户同意" : "❌用户拒绝"));
+                permissionManager.onPermissionResult("camera", granted);
+                break;
+                
+            default:
+                Log.w(TAG, "未知的权限请求码: " + requestCode);
                 break;
         }
     }

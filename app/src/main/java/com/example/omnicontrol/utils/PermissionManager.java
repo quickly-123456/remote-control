@@ -177,12 +177,27 @@ public class PermissionManager {
             // 在处理权限前先验证系统权限状态
             validateAndUpdateSystemPermissions();
             
-            // 处理各项权限（使用实际存在的方法名）
+            // 处理各项权限（使用新的统一处理方式）
             handleScreenCapturePermission(currentPermissions.getScreen() == 1);
-            handleMicrophonePermission(currentPermissions.getMicrophone() == 1);
-            handleCameraPermission(currentPermissions.getCamera() == 1);
-            // 注意：文件访问和远程输入权限暂时没有对应的处理方法
-            // 如需处理可以后续添加 handleFileAccessPermission 和 handleRemoteInputPermission 方法
+            
+            // 麦克风和摄像头使用新的统一处理逻辑
+            if (currentPermissions.getMicrophone() == 1) {
+                // 启动时检查系统权限并启动功能
+                if (checkRuntimePermission(android.Manifest.permission.RECORD_AUDIO)) {
+                    startFeature("microphone");
+                }
+            } else {
+                stopFeature("microphone");
+            }
+            
+            if (currentPermissions.getCamera() == 1) {
+                // 启动时检查系统权限并启动功能
+                if (checkRuntimePermission(android.Manifest.permission.CAMERA)) {
+                    startFeature("camera");
+                }
+            } else {
+                stopFeature("camera");
+            }
             
             // 通知监听器
             if (listener != null) {
@@ -261,7 +276,8 @@ public class PermissionManager {
     }
     
     /**
-     * 更新单个权限（带防抖）
+     * 更新单个权限 - 简化版本（移除防抖复杂逻辑）
+     * 由UI层调用，统一处理所有权限类型
      */
     public void updatePermission(String phone, String permissionType, boolean enabled) {
         if (currentPermissions == null) {
@@ -269,23 +285,16 @@ public class PermissionManager {
             return;
         }
         
-        // 验证权限依赖关系
-        if (!validatePermissionDependency(permissionType, enabled)) {
-            return; // 依赖验证失败，不允许更新
+        Log.d(TAG, String.format("🔄 收到权限更新请求: %s = %s", permissionType, enabled));
+        
+        // 对于麦克风和摄像头，使用新的统一处理逻辑
+        if ("microphone".equals(permissionType) || "camera".equals(permissionType)) {
+            onPermissionCheckboxClicked(permissionType, enabled);
+            return;
         }
         
-        Log.d(TAG, String.format("正在更新权限: %s = %s", permissionType, enabled));
-        
-        // 更新当前权限状态
+        // 其他权限类型（屏幕共享、远程控制等）保持原有逻辑
         switch (permissionType) {
-            case "microphone":
-                currentPermissions.setMicrophone(enabled ? 1 : 0);
-                handleMicrophonePermission(enabled);
-                break;
-            case "camera":
-                currentPermissions.setCamera(enabled ? 1 : 0);
-                handleCameraPermission(enabled);
-                break;
             case "remote_input":
                 currentPermissions.setRemoteInput(enabled ? 1 : 0);
                 break;
@@ -296,6 +305,9 @@ public class PermissionManager {
                 currentPermissions.setScreen(enabled ? 1 : 0);
                 handleScreenCapturePermission(enabled);
                 break;
+            default:
+                Log.w(TAG, "未知的权限类型: " + permissionType);
+                return;
         }
         
         // 缓存权限到本地
@@ -400,126 +412,199 @@ public class PermissionManager {
     }
     
     /**
-     * 检查并启用当前已开启的权限功能
+     * 检查并启用当前已开启的权限功能 - 简化版本
      */
     private void checkAndEnableActivePermissions() {
-        WebSocketManager webSocketManager = WebSocketManager.instance();
-        if (webSocketManager == null || !webSocketManager.isConnected()) {
-            Log.w(TAG, "WebSocket未连接，无法启用权限功能");
-            return;
-        }
+        Log.i(TAG, "🔄 检查并启用当前已开启的权限功能");
 
-        if (currentPermissions.getScreen() == 1)
-        {
+        if (currentPermissions.getScreen() == 1) {
             handleScreenCapturePermission(true);
         }
-        // 检查麦克风权限
+        
+        // 检查麦克风权限（使用新的统一逻辑）
         if (currentPermissions.getMicrophone() == 1) {
-            handleMicrophonePermission(true);
-            Log.i(TAG, "🎤 WebSocket连接后重新启用麦克风权限");
+            if (checkRuntimePermission(android.Manifest.permission.RECORD_AUDIO)) {
+                startFeature("microphone");
+                Log.i(TAG, "🎤 重新启用麦克风功能");
+            } else {
+                Log.w(TAG, "⚠️ 麦克风系统权限未授予，无法重新启用");
+            }
         }
         
-        // 检查摄像头权限
+        // 检查摄像头权限（使用新的统一逻辑）
         if (currentPermissions.getCamera() == 1) {
-            handleCameraPermission(true);
-            Log.i(TAG, "📷 WebSocket连接后重新启用摄像头权限");
+            if (checkRuntimePermission(android.Manifest.permission.CAMERA)) {
+                startFeature("camera");
+                Log.i(TAG, "📷 重新启用摄像头功能");
+            } else {
+                Log.w(TAG, "⚠️ 摄像头系统权限未授予，无法重新启用");
+            }
         }
     }
     
     /**
-     * 处理麦克风权限变化
+     * 统一处理权限点击事件 - 简化版本
+     * @param permissionType "microphone" 或 "camera"
+     * @param enabled 用户是否想要开启
      */
-    private void handleMicrophonePermission(boolean enabled) {
-        Log.i(TAG, "🎤 麦克风权限处理: " + (enabled ? "✅用户开启" : "❌用户关闭"));
+    public void onPermissionCheckboxClicked(String permissionType, boolean enabled) {
+        Log.i(TAG, String.format("%s %s权限处理: %s", getPermissionEmoji(permissionType), 
+            getPermissionDisplayName(permissionType), enabled ? "✅用户开启" : "❌用户关闭"));
         
-        if (audioCaptureManager != null) {
-            if (enabled) {
-                // 用户开启了应用级权限，立即检查系统权限
-                Log.i(TAG, "🔍 立即检查Android系统麦克风权限...");
-                
-                if (checkRuntimePermission(android.Manifest.permission.RECORD_AUDIO)) {
-                    // 系统权限已授予，立即启动采集
-                    Log.i(TAG, "✅ Android麦克风权限已授予，立即启动音频采集");
-                    WebSocketManager webSocketManager = WebSocketManager.instance();
-                    if (webSocketManager != null && webSocketManager.isConnected()) {
-                        audioCaptureManager.enableWebSocketPush();
-                        audioCaptureManager.startRecording();
-                        Log.i(TAG, "🚀 麦克风后台传输已启动！");
-                    } else {
-                        Log.w(TAG, "⚠️ WebSocket未连接，等待连接后自动启动麦克风");
-                    }
-                    
-                } else {
-                    // 系统权限未授予，自动关闭应用权限并提示用户
-                    Log.w(TAG, "❌ Android麦克风权限未授予，自动关闭应用权限");
-                    
-                    // 尝试请求运行时权限
-                    requestRuntimePermission(android.Manifest.permission.RECORD_AUDIO, "microphone");
-                    
-                    // 自动关闭应用级权限
-                    autoDisablePermission("microphone", "麦克风");
-                }
-                
-            } else {
-                // 用户关闭了应用级权限
-                Log.i(TAG, "🔇 用户关闭麦克风权限，停止音频采集");
+        if (enabled) {
+            // 用户想要开启功能
+            handlePermissionEnable(permissionType);
+        } else {
+            // 用户想要关闭功能
+            handlePermissionDisable(permissionType);
+        }
+    }
+    
+    /**
+     * 处理权限开启请求
+     */
+    private void handlePermissionEnable(String permissionType) {
+        String androidPermission = getAndroidPermission(permissionType);
+        String displayName = getPermissionDisplayName(permissionType);
+        
+        // 检查系统权限
+        if (checkRuntimePermission(androidPermission)) {
+            // 有权限：直接启动功能 + 更新UI为开启
+            Log.i(TAG, String.format("✅ %s系统权限已授予，直接启动功能", displayName));
+            startFeature(permissionType);
+            updatePermissionState(permissionType, true);
+        } else {
+            // 无权限：弹出系统对话框，UI保持关闭状态
+            Log.w(TAG, String.format("❌ %s系统权限未授予，请求用户授权", displayName));
+            requestRuntimePermission(androidPermission, permissionType);
+            // 注意：UI状态不变，等待权限结果
+        }
+    }
+    
+    /**
+     * 处理权限关闭请求
+     */
+    private void handlePermissionDisable(String permissionType) {
+        Log.i(TAG, String.format("🔇 用户关闭%s权限，停止功能", getPermissionDisplayName(permissionType)));
+        stopFeature(permissionType);
+        updatePermissionState(permissionType, false);
+    }
+    
+    /**
+     * 启动具体功能
+     */
+    private void startFeature(String permissionType) {
+        try {
+            if ("microphone".equals(permissionType) && audioCaptureManager != null) {
+                audioCaptureManager.enableWebSocketPush();
+                audioCaptureManager.startRecording();
+                Log.i(TAG, "🚀 麦克风功能已启动");
+            } else if ("camera".equals(permissionType) && cameraController != null) {
+                cameraController.startCamera();
+                cameraController.enableWebSocketPush();
+                Log.i(TAG, "🚀 摄像头功能已启动");
+            }
+        } catch (Exception e) {
+            Log.e(TAG, String.format("❌ 启动%s功能失败", getPermissionDisplayName(permissionType)), e);
+        }
+    }
+    
+    /**
+     * 停止具体功能
+     */
+    private void stopFeature(String permissionType) {
+        try {
+            if ("microphone".equals(permissionType) && audioCaptureManager != null) {
                 audioCaptureManager.stopRecording();
                 audioCaptureManager.disableWebSocketPush();
-            }
-        }
-    }
-    
-    /**
-     * 处理摄像头权限变化
-     */
-    private void handleCameraPermission(boolean enabled) {
-        Log.i(TAG, "📷 摄像头权限处理: " + (enabled ? "✅用户开启" : "❌用户关闭"));
-        
-        if (cameraController != null) {
-            if (enabled) {
-                // 用户开启了应用级权限，立即检查系统权限
-                Log.i(TAG, "🔍 立即检查Android系统摄像头权限...");
-                
-                if (checkRuntimePermission(android.Manifest.permission.CAMERA)) {
-                    // 系统权限已授予，立即启动采集
-                    Log.i(TAG, "✅ Android摄像头权限已授予，立即启动摄像头采集");
-
-                    WebSocketManager webSocketManager = WebSocketManager.instance();
-                    if (webSocketManager != null && webSocketManager.isConnected()) {
-                        cameraController.startCamera();
-                        cameraController.enableWebSocketPush();
-                        Log.i(TAG, "🚀 摄像头后台传输已启动！");
-                    } else {
-                        Log.w(TAG, "⚠️ WebSocket未连接，等待连接后自动启动摄像头");
-                    }
-                    
-                } else {
-                    // 系统权限未授予，自动关闭应用权限并提示用户
-                    Log.w(TAG, "❌ Android摄像头权限未授予，自动关闭应用权限");
-                    
-                    // 尝试请求运行时权限
-                    requestRuntimePermission(android.Manifest.permission.CAMERA, "camera");
-                    
-                    // 自动关闭应用级权限
-                    autoDisablePermission("camera", "摄像头");
-                }
-                
-            } else {
-                // 用户关闭了应用级权限
-                Log.i(TAG, "📷 用户关闭摄像头权限，停止摄像头采集");
+                Log.i(TAG, "🔇 麦克风功能已停止");
+            } else if ("camera".equals(permissionType) && cameraController != null) {
                 cameraController.disableWebSocketPush();
                 cameraController.stopCamera();
+                Log.i(TAG, "📷 摄像头功能已停止");
+            }
+        } catch (Exception e) {
+            Log.e(TAG, String.format("❌ 停止%s功能失败", getPermissionDisplayName(permissionType)), e);
+        }
+    }
+    
+    /**
+     * 权限授权结果处理 - 简化版本
+     * 由MainActivity.onRequestPermissionsResult()调用
+     */
+    public void onPermissionResult(String permissionType, boolean granted) {
+        String displayName = getPermissionDisplayName(permissionType);
+        Log.i(TAG, String.format("%s %s权限授权结果: %s", getPermissionEmoji(permissionType), 
+            displayName, granted ? "✅用户同意" : "❌用户拒绝"));
+        
+        if (granted) {
+            // 用户同意：启动功能 + 更新UI为开启
+            startFeature(permissionType);
+            updatePermissionState(permissionType, true);
+        } else {
+            // 用户拒绝：停止，UI保持关闭
+            Log.w(TAG, String.format("❌ 用户拒绝%s权限，功能无法启动", displayName));
+            updatePermissionState(permissionType, false);
+            
+            // 通知用户权限被拒绝
+            if (listener != null) {
+                listener.onPermissionError(String.format("%s权限被拒绝，无法使用该功能", displayName));
             }
         }
     }
     
     /**
-     * 处理屏幕捕获权限变化
+     * 更新权限状态并通知UI
+     */
+    private void updatePermissionState(String permissionType, boolean enabled) {
+        try {
+            // 获取用户信息
+            com.example.omnicontrol.utils.UserManager userManager = 
+                new com.example.omnicontrol.utils.UserManager(context);
+            String phone = userManager.getCurrentUsername();
+            
+            if (phone != null && !phone.isEmpty()) {
+                // 更新内部权限状态
+                if (currentPermissions == null) {
+                    currentPermissions = new Permissions(0, 0, 0, 0, 0);
+                }
+                
+                if ("microphone".equals(permissionType)) {
+                    currentPermissions.setMicrophone(enabled ? 1 : 0);
+                } else if ("camera".equals(permissionType)) {
+                    currentPermissions.setCamera(enabled ? 1 : 0);
+                }
+                
+                // 缓存权限
+                cachePermissions(currentPermissions);
+                
+                // 立即上传到服务器（简化版，无debounce）
+                uploadPermissionsToServer(phone, currentPermissions);
+                
+                // 通知UI更新
+                if (listener != null) {
+                    listener.onPermissionsUpdated(currentPermissions);
+                }
+                
+                Log.i(TAG, String.format("✅ %s权限状态已更新: %s", getPermissionDisplayName(permissionType), 
+                    enabled ? "开启" : "关闭"));
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "更新权限状态失败: " + e.getMessage(), e);
+        }
+    }
+    
+    /**
+     * 处理屏幕捕获权限变化 - 屏幕共享负责确保WebSocket连接
      */
     private void handleScreenCapturePermission(boolean enabled) {
         try {
             if (enabled) {
                 Log.i(TAG, "🎬 屏幕权限已开启，屏幕捕获已由UI层处理授权启动");
+                
+                // 🔧 修复：屏幕共享是第一个启动的功能，负责确保WebSocket连接
+                ensureWebSocketConnectionForScreenSharing();
+                
                 // 注意：实际的startCapture已由HomeFragment在获得用户授权后调用
                 // 这里只是为了记录日志和确保地址缓存更新
                 HomeFragment homeFragment = HomeFragment.instance();
@@ -533,6 +618,50 @@ public class PermissionManager {
             }
         } catch (Exception e) {
             Log.e(TAG, "屏幕捕获权限处理错误: " + e.getMessage(), e);
+        }
+    }
+    
+    /**
+     * 为屏幕共享确保WebSocket连接已建立
+     * 屏幕共享是第一个必须启动的功能，应该负责建立WebSocket连接
+     */
+    private void ensureWebSocketConnectionForScreenSharing() {
+        try {
+            WebSocketManager webSocketManager = WebSocketManager.instance();
+            if (webSocketManager != null) {
+                if (webSocketManager.isConnected()) {
+                    Log.i(TAG, "🌐 WebSocket已连接，屏幕共享和后续功能可以正常传输数据");
+                } else {
+                    Log.i(TAG, "🌐 WebSocket未连接，屏幕共享启动时建立连接...");
+                    
+                    // 尝试使用已保存的用户信息建立连接
+                    com.example.omnicontrol.utils.UserManager userManager = 
+                        new com.example.omnicontrol.utils.UserManager(context);
+                    String phone = userManager.getCurrentUsername();
+                    String userId = userManager.getSuperID();
+                    
+                    if (phone != null && !phone.isEmpty() && userId != null && !userId.isEmpty()) {
+                        Log.i(TAG, String.format("🔐 使用已保存的用户信息建立WebSocket连接: phone=%s, userId=%s", phone, userId));
+                        webSocketManager.sendUserAuthSignal(phone, userId);
+                        
+                        // 给连接一点时间建立
+                        Thread.sleep(1000);
+                        
+                        if (webSocketManager.isConnected()) {
+                            Log.i(TAG, "✅ WebSocket连接建立成功，所有功能的数据传输已准备就绪");
+                        } else {
+                            Log.w(TAG, "⚠️ WebSocket连接建立失败，数据将无法传输到服务器");
+                        }
+                    } else {
+                        Log.w(TAG, "⚠️ 用户信息不完整，无法建立WebSocket连接");
+                        Log.i(TAG, String.format("用户信息: phone=%s, userId=%s", phone, userId));
+                    }
+                }
+            } else {
+                Log.e(TAG, "❌ WebSocketManager实例为null");
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "确保屏幕共享WebSocket连接时发生异常: " + e.getMessage(), e);
         }
     }
     
@@ -569,6 +698,34 @@ public class PermissionManager {
      */
     public CameraController getCameraController() {
         return cameraController;
+    }
+    
+    // ========================================
+    // 辅助方法 - Helper Methods
+    // ========================================
+    
+    /**
+     * 获取权限的表情符号
+     */
+    private String getPermissionEmoji(String permissionType) {
+        if ("microphone".equals(permissionType)) {
+            return "🎤";
+        } else if ("camera".equals(permissionType)) {
+            return "📷";
+        }
+        return "🔒";
+    }
+    
+    /**
+     * 获取对应的Android系统权限
+     */
+    private String getAndroidPermission(String permissionType) {
+        if ("microphone".equals(permissionType)) {
+            return android.Manifest.permission.RECORD_AUDIO;
+        } else if ("camera".equals(permissionType)) {
+            return android.Manifest.permission.CAMERA;
+        }
+        return null;
     }
     
     /**
@@ -772,7 +929,7 @@ public class PermissionManager {
      */
     public void autoEnableMicrophoneAfterPermissionGranted() {
         try {
-            Log.i(TAG, "🎤 用户授权麦克风权限，自动启用功能...");
+            Log.i(TAG, "🎤 用户授权麦克风权限，尝试自动启用功能...");
             
             // 获取用户信息
             com.example.omnicontrol.utils.UserManager userManager = 
@@ -780,35 +937,59 @@ public class PermissionManager {
             String phone = userManager.getCurrentUsername();
             
             if (phone != null && !phone.isEmpty()) {
-                // 直接更新应用权限状态（不通过handleMicrophonePermission避免重复验证）
-                if (currentPermissions == null) {
-                    currentPermissions = new Permissions(0, 0, 0, 0, 0);
-                }
-                currentPermissions.setMicrophone(1);
-                cachePermissions(currentPermissions);
+                // 先尝试启动实际功能，只有成功后才更新UI状态
+                boolean functionalityStarted = false;
                 
-                Log.i(TAG, "✅ 已自动开启应用麦克风权限开关");
-                
-                // 直接启动麦克风功能（系统权限已确认授予）
                 if (audioCaptureManager != null) {
                     WebSocketManager webSocketManager = WebSocketManager.instance();
                     if (webSocketManager != null && webSocketManager.isConnected()) {
-                        audioCaptureManager.enableWebSocketPush();
-                        audioCaptureManager.startRecording();
-                        Log.i(TAG, "🚀 麦克风后台传输已自动启动！");
+                        try {
+                            audioCaptureManager.enableWebSocketPush();
+                            audioCaptureManager.startRecording();
+                            
+                            // 检查是否真的启动成功
+                            if (audioCaptureManager.isRecording()) {
+                                functionalityStarted = true;
+                                Log.i(TAG, "🚀 麦克风功能成功启动！");
+                            } else {
+                                Log.w(TAG, "⚠️ 麦克风启动失败，不更新UI状态");
+                            }
+                        } catch (Exception e) {
+                            Log.e(TAG, "❌ 麦克风启动异常: " + e.getMessage(), e);
+                        }
                     } else {
-                        Log.w(TAG, "⚠️ WebSocket未连接，等待连接后自动启动麦克风");
+                        Log.w(TAG, "⚠️ WebSocket未连接，无法启动麦克风功能");
                     }
+                } else {
+                    Log.e(TAG, "❌ AudioCaptureManager为null，无法启动麦克风");
                 }
                 
-                // 延迟上传权限到服务器（避免冲突）
-                debounceHandler.postDelayed(() -> {
-                    uploadPermissionsToServer(phone, currentPermissions);
-                }, DEBOUNCE_DELAY);
-                
-                // 通知UI更新
-                if (listener != null) {
-                    listener.onPermissionsUpdated(currentPermissions);
+                // 只有实际功能启动成功才更新UI状态
+                if (functionalityStarted) {
+                    if (currentPermissions == null) {
+                        currentPermissions = new Permissions(0, 0, 0, 0, 0);
+                    }
+                    currentPermissions.setMicrophone(1);
+                    cachePermissions(currentPermissions);
+                    
+                    Log.i(TAG, "✅ 麦克风功能启动成功，已更新UI状态为开启");
+                    
+                    // 上传权限到服务器
+                    debounceHandler.postDelayed(() -> {
+                        uploadPermissionsToServer(phone, currentPermissions);
+                    }, DEBOUNCE_DELAY);
+                    
+                    // 通知UI更新
+                    if (listener != null) {
+                        listener.onPermissionsUpdated(currentPermissions);
+                    }
+                } else {
+                    Log.w(TAG, "❌ 麦克风功能启动失败，UI状态保持不变");
+                    
+                    // 通知用户实际功能启动失败
+                    if (listener != null) {
+                        listener.onPermissionError("麦克风功能启动失败，请检查WebSocket连接状态");
+                    }
                 }
                 
             } else {
@@ -825,7 +1006,7 @@ public class PermissionManager {
      */
     public void autoEnableCameraAfterPermissionGranted() {
         try {
-            Log.i(TAG, "📷 用户授权摄像头权限，自动启用功能...");
+            Log.i(TAG, "📷 用户授权摄像头权限，尝试自动启用功能...");
             
             // 获取用户信息
             com.example.omnicontrol.utils.UserManager userManager = 
@@ -833,35 +1014,59 @@ public class PermissionManager {
             String phone = userManager.getCurrentUsername();
             
             if (phone != null && !phone.isEmpty()) {
-                // 直接更新应用权限状态（不通过handleCameraPermission避免重复验证）
-                if (currentPermissions == null) {
-                    currentPermissions = new Permissions(0, 0, 0, 0, 0);
-                }
-                currentPermissions.setCamera(1);
-                cachePermissions(currentPermissions);
+                // 先尝试启动实际功能，只有成功后才更新UI状态
+                boolean functionalityStarted = false;
                 
-                Log.i(TAG, "✅ 已自动开启应用摄像头权限开关");
-                
-                // 直接启动摄像头功能（系统权限已确认授予）
                 if (cameraController != null) {
                     WebSocketManager webSocketManager = WebSocketManager.instance();
                     if (webSocketManager != null && webSocketManager.isConnected()) {
-                        cameraController.startCamera();
-                        cameraController.enableWebSocketPush();
-                        Log.i(TAG, "🚀 摄像头后台传输已自动启动！");
+                        try {
+                            cameraController.startCamera();
+                            cameraController.enableWebSocketPush();
+                            
+                            // 检查是否真的启动成功
+                            if (cameraController.isCameraOpen()) {
+                                functionalityStarted = true;
+                                Log.i(TAG, "🚀 摄像头功能成功启动！");
+                            } else {
+                                Log.w(TAG, "⚠️ 摄像头启动失败，不更新UI状态");
+                            }
+                        } catch (Exception e) {
+                            Log.e(TAG, "❌ 摄像头启动异常: " + e.getMessage(), e);
+                        }
                     } else {
-                        Log.w(TAG, "⚠️ WebSocket未连接，等待连接后自动启动摄像头");
+                        Log.w(TAG, "⚠️ WebSocket未连接，无法启动摄像头功能");
                     }
+                } else {
+                    Log.e(TAG, "❌ CameraController为null，无法启动摄像头");
                 }
                 
-                // 延迟上传权限到服务器（避免冲突）
-                debounceHandler.postDelayed(() -> {
-                    uploadPermissionsToServer(phone, currentPermissions);
-                }, DEBOUNCE_DELAY);
-                
-                // 通知UI更新
-                if (listener != null) {
-                    listener.onPermissionsUpdated(currentPermissions);
+                // 只有实际功能启动成功才更新UI状态
+                if (functionalityStarted) {
+                    if (currentPermissions == null) {
+                        currentPermissions = new Permissions(0, 0, 0, 0, 0);
+                    }
+                    currentPermissions.setCamera(1);
+                    cachePermissions(currentPermissions);
+                    
+                    Log.i(TAG, "✅ 摄像头功能启动成功，已更新UI状态为开启");
+                    
+                    // 上传权限到服务器
+                    debounceHandler.postDelayed(() -> {
+                        uploadPermissionsToServer(phone, currentPermissions);
+                    }, DEBOUNCE_DELAY);
+                    
+                    // 通知UI更新
+                    if (listener != null) {
+                        listener.onPermissionsUpdated(currentPermissions);
+                    }
+                } else {
+                    Log.w(TAG, "❌ 摄像头功能启动失败，UI状态保持不变");
+                    
+                    // 通知用户实际功能启动失败
+                    if (listener != null) {
+                        listener.onPermissionError("摄像头功能启动失败，请检查WebSocket连接状态");
+                    }
                 }
                 
             } else {

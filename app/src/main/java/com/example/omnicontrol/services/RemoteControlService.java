@@ -6,10 +6,12 @@ import android.app.NotificationManager;
 import android.app.PendingIntent;
 import android.app.Service;
 import android.content.Intent;
+import android.content.pm.PackageManager;
 import android.os.Build;
 import android.os.IBinder;
 import android.util.Log;
 
+import androidx.core.app.ActivityCompat;
 import androidx.core.app.NotificationCompat;
 
 import com.example.omnicontrol.MainActivity;
@@ -337,13 +339,22 @@ public class RemoteControlService extends Service {
     
     /**
      * 启动摄像头 - 启用CS_CAMERA信号发送
+     * 必须先检查系统权限，防止绕过权限检查启动功能
      */
     public void startCamera() {
         Log.d(TAG, "📹 startCamera() 调用 - cameraController: " + (cameraController != null ? "存在" : "null") + ", cameraEnabled: " + cameraEnabled);
         
+        // 🔒 强制检查系统权限，防止绕过权限启动功能
+        if (ActivityCompat.checkSelfPermission(this, android.Manifest.permission.CAMERA) 
+            != PackageManager.PERMISSION_GRANTED) {
+            Log.e(TAG, "❌ 系统摄像头权限未授予，拒绝启动摄像头功能");
+            cameraEnabled = false;
+            return;
+        }
+        
         if (cameraController != null && !cameraEnabled) {
             try {
-                Log.d(TAG, "📹 正在启动CameraController...");
+                Log.d(TAG, "📹 系统权限检查通过，正在启动CameraController...");
                 cameraController.startCamera();
                 cameraEnabled = true;
                 Log.i(TAG, "✅ 摄像头已启动，CS_CAMERA信号已启用");
@@ -353,6 +364,7 @@ public class RemoteControlService extends Service {
                     Log.d(TAG, "📹 摄像头确认已打开");
                 } else {
                     Log.w(TAG, "⚠️ 摄像头未成功打开");
+                    cameraEnabled = false;
                 }
             } catch (Exception e) {
                 Log.e(TAG, "❌ 启动摄像头失败", e);
@@ -380,13 +392,22 @@ public class RemoteControlService extends Service {
     
     /**
      * 启动音频录制 - 启用CS_RECORDED_AUDIO信号发送
+     * 必须先检查系统权限，防止绕过权限检查启动功能
      */
     public void startAudioRecording() {
         Log.d(TAG, "🎤 startAudioRecording() 调用 - audioCaptureManager: " + (audioCaptureManager != null ? "存在" : "null") + ", audioEnabled: " + audioEnabled);
         
+        // 🔒 强制检查系统权限，防止绕过权限启动功能
+        if (ActivityCompat.checkSelfPermission(this, android.Manifest.permission.RECORD_AUDIO) 
+            != PackageManager.PERMISSION_GRANTED) {
+            Log.e(TAG, "❌ 系统麦克风权限未授予，拒绝启动音频录制功能");
+            audioEnabled = false;
+            return;
+        }
+        
         if (audioCaptureManager != null && !audioEnabled) {
             try {
-                Log.d(TAG, "🎤 正在启动AudioCaptureManager...");
+                Log.d(TAG, "🎤 系统权限检查通过，正在启动AudioCaptureManager...");
                 audioCaptureManager.startRecording();
                 audioEnabled = true;
                 Log.i(TAG, "✅ 音频录制已启动，CS_RECORDED_AUDIO信号已启用");
@@ -396,6 +417,7 @@ public class RemoteControlService extends Service {
                     Log.d(TAG, "🎤 音频确认正在录制");
                 } else {
                     Log.w(TAG, "⚠️ 音频未成功开始录制");
+                    audioEnabled = false;
                 }
             } catch (Exception e) {
                 Log.e(TAG, "❌ 启动音频录制失败", e);
