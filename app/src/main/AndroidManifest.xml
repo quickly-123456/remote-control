@@ -22,6 +22,7 @@
     <!-- 前台服务权限 -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
     
     <!-- 系统窗口和无障碍服务权限 -->
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />

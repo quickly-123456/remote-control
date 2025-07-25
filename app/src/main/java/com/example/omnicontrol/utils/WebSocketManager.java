@@ -42,7 +42,13 @@ public class WebSocketManager {
         void onError(String error);
     }
     
+    // 消息转发回调接口
+    public interface MessageForwardCallback {
+        void onMessageReceived(byte[] data);
+    }
+    
     private ConnectionStateListener stateListener;
+    private static MessageForwardCallback messageForwardCallback;
     
     public WebSocketManager() {
         mainHandler = new Handler(Looper.getMainLooper());
@@ -64,6 +70,26 @@ public class WebSocketManager {
     
     public void setConnectionStateListener(ConnectionStateListener listener) {
         this.stateListener = listener;
+    }
+    
+    /**
+     * 设置消息转发回调
+     */
+    public static void setMessageForwardCallback(MessageForwardCallback callback) {
+        messageForwardCallback = callback;
+        Log.i(TAG, "🔗 消息转发回调已设置");
+    }
+    
+    /**
+     * 转发消息到RemoteControlService
+     */
+    private void forwardToRemoteControlService(byte[] data) {
+        if (messageForwardCallback != null) {
+            Log.d(TAG, "🚀 转发消息到RemoteControlService ("+data.length+" bytes)");
+            messageForwardCallback.onMessageReceived(data);
+        } else {
+            Log.w(TAG, "⚠️ 消息转发回调未设置，消息丢失");
+        }
     }
     
     /**
@@ -95,23 +121,60 @@ public class WebSocketManager {
                 @Override
                 public void onOpen(ServerHandshake handshake) {
                     Log.i(TAG, "🌐 WebSocket连接成功 - " + RDTDefine.WS_SERVER_URL);
+                    Log.i(TAG, "🔗 消息转发回调状态: " + (messageForwardCallback != null ? "已设置" : "未设置"));
                     updateConnectionState(RDTDefine.ConnectionState.CONNECTED);
-                    retryCount = 0;
+                    retryCount = 0; // 重置重连计数器
                     
-                    // 发送用户认证信息
-                    sendUserAuth();
+                    // 发送用户认证信号
+                    sendUserAuthSignal(phoneNumber, userId);
                 }
                 
                 @Override
                 public void onMessage(String message) {
-                    Log.d(TAG, "📨 收到服务器消息: " + message);
+                    Log.i("websocketGet", "📨 接收到文本消息: " + message.length() + " chars");
+                    Log.d("websocketGet", "📝 消息内容: " + message);
+                    
+                    Log.i(TAG, "📨 收到服务器文本消息: " + message);
+                    Log.d(TAG, "📝 消息长度: " + message.length());
+                    Log.d(TAG, "📝 消息内容: " + message);
+                    // 转发文本消息到RemoteControlService
+                    if (messageForwardCallback != null) {
+                        messageForwardCallback.onMessageReceived(message.getBytes());
+                    }
                 }
                 
                 @Override
                 public void onMessage(java.nio.ByteBuffer bytes) {
-                    Log.d(TAG, "📨 收到二进制消息: " + bytes.remaining() + " bytes");
-                    // 使用RDTProtocol解析接收到的消息
-                    handleReceivedMessage(bytes.array());
+                    try {
+                        int remaining = bytes.remaining();
+                        
+                        // 优先级最高的接收数据日志
+                        Log.i("websocketGet", "✨ 接收到二进制数据: " + remaining + " bytes");
+                        Log.d("websocketGet", "📊 ByteBuffer: pos=" + bytes.position() + ", lim=" + bytes.limit() + ", cap=" + bytes.capacity());
+                        
+                        Log.i(TAG, "📨 收到二进制消息: " + remaining + " bytes");
+                        
+                        // 检查ByteBuffer状态
+                        Log.d(TAG, "📊 ByteBuffer状态: position=" + bytes.position() + ", limit=" + bytes.limit() + ", capacity=" + bytes.capacity());
+                        
+                        // 安全转换为Byte数组
+                        byte[] data = new byte[remaining];
+                        bytes.get(data);
+                        
+                        // 显示前16字节的十六进制内容
+                        StringBuilder hexPreview = new StringBuilder();
+                        for (int i = 0; i < Math.min(16, data.length); i++) {
+                            hexPreview.append(String.format("%02X ", data[i] & 0xFF));
+                        }
+                        Log.d("websocketGet", "🔍 数据预览: " + hexPreview.toString());
+                        
+                        Log.i(TAG, "🚀 调用handleReceivedMessage处理 " + data.length + " bytes");
+                        handleReceivedMessage(data);
+                        
+                    } catch (Exception e) {
+                        Log.e(TAG, "处理二进制消息失败", e);
+                        Log.e("websocketGet", "❌ 处理数据失败: " + e.getMessage());
+                    }
                 }
                 
                 @Override
@@ -150,34 +213,71 @@ public class WebSocketManager {
      */
     private void handleReceivedMessage(byte[] data) {
         try {
+            Log.d(TAG, String.format("📨 接收到服务器消息 (%d bytes)", data.length));
+            
+            // 首先检查是否为原始二进制信号（如SC_TOUCHED）
+            if (handleRawBinarySignal(data)) {
+                return; // 已处理原始信号，直接返回
+            }
+            
+            // 尝试解析RDT消息
             RDTProtocol.RDTMessageInfo messageInfo = RDTProtocol.parseRDTMessage(data);
             if (messageInfo != null) {
                 Log.d(TAG, "📨 解析RDT消息: " + messageInfo.getSignalTypeName());
                 
                 switch (messageInfo.signalType) {
-                    case RDTDefine.RdtSignal.SC_CONTROL:
-                        // 处理控制命令
-                        String command = RDTProtocol.parseControlCommand(messageInfo.messageData);
-                        Log.i(TAG, "🎮 收到控制命令: " + command);
-                        break;
-                        
-                    case RDTDefine.RdtSignal.SC_FILE:
-                        // 处理文件操作
-                        RDTProtocol.FileOperationInfo fileOp = RDTProtocol.parseFileOperation(messageInfo.messageData);
-                        if (fileOp != null) {
-                            Log.i(TAG, String.format("📁 收到文件操作: %s (%s, %d bytes)", 
-                                fileOp.fileName, fileOp.fileType, fileOp.fileData.length));
-                        }
+                    case RDTDefine.RdtSignal.SC_ONOFF: // 更新为正确的信号
+                        // 处理设备开关控制
+                        Log.i(TAG, "🎮 收到设备开关控制信号");
                         break;
                         
                     default:
-                        Log.d(TAG, "📨 未处理的消息类型: " + messageInfo.getSignalTypeName());
+                        Log.d(TAG, "📨 未处理的RDT消息类型: " + messageInfo.getSignalTypeName());
                         break;
                 }
+            } else {
+                Log.w(TAG, "⚠️ 无法解析RDT消息，也不是原始信号");
             }
+            
         } catch (Exception e) {
             Log.e(TAG, "处理接收消息失败: " + e.getMessage(), e);
         }
+    }
+    
+    /**
+     * 处理原始二进制信号（如CS_TOUCHED、SC_TOUCHED等）
+     * @param data 二进制数据
+     * @return true 如果是原始信号并已处理，false 否则
+     */
+    private boolean handleRawBinarySignal(byte[] data) {
+        try {
+            // 检查触摸信号（至少需要 4 字节作为信号类型）
+            if (data.length >= 4) {
+                int signal = java.nio.ByteBuffer.wrap(data, 0, 4).order(java.nio.ByteOrder.LITTLE_ENDIAN).getInt();
+                
+                // CS_TOUCHED (267) - 服务器发送给Android客户端的触摸信号
+                if (signal == RDTDefine.RdtSignal.CS_TOUCHED) {
+                    Log.i(TAG, "👆 检测到CS_TOUCHED原始信号（服务器→Android），转发给RemoteControlService");
+                    forwardToRemoteControlService(data);
+                    return true;
+                }
+                
+                // SC_TOUCHED (268) - Android客户端发送的触摸信号（备用）
+                if (signal == RDTDefine.RdtSignal.SC_TOUCHED && data.length == 12) {
+                    Log.i(TAG, "👆 检测到SC_TOUCHED原始信号，转发给RemoteControlService");
+                    forwardToRemoteControlService(data);
+                    return true;
+                }
+            }
+            
+            // 检查其他原始信号...
+            // 可以在这里添加更多原始信号的检查
+            
+        } catch (Exception e) {
+            Log.e(TAG, "处理原始信号失败", e);
+        }
+        
+        return false; // 不是原始信号
     }
     
     /**

@@ -13,29 +13,59 @@ public class RDTDefine {
     // WebSocket服务器地址
     public static final String WS_SERVER_URL = "ws://185.128.227.222:5050";
     
-    // RDT信号类型枚举
+    // RDT信号类型枚举 - 根据官方API文档更新
     public static class RdtSignal {
-        public static final int CS_USER = 0xFF;      // Client to Server - 用户信息
-        public static final int SC_USER = 0x100;     // Server to Client - 用户信息
+        // 用户连接信号
+        public static final int CS_USER = 255;       // 0xFF - Client to Server - Android用户连接
+        public static final int SC_USER = 256;       // 0x100 - Server to Client - 用户连接确认
         
-        public static final int CS_VUE = 0x101;      // Client to Server - Vue页面
-        public static final int SC_VUE = 0x102;      // Server to Client - Vue页面
+        // Vue Web控制台信号
+        public static final int CS_VUE = 257;        // 0x101 - Client to Server - Vue Web连接
+        public static final int SC_VUE = 258;        // 0x102 - Server to Client - Vue Web成员信息
         
-        public static final int CS_SCREEN = 0x103;   // Client to Server - 屏幕数据
-        public static final int SC_SCREEN = 0x104;   // Server to Client - 屏幕数据
+        // 屏幕共享信号
+        public static final int CS_SCREEN = 259;     // 0x103 - Client to Server - 屏幕数据
+        public static final int SC_SCREEN = 260;     // 0x104 - Server to Client - 屏幕数据
         
-        // 权限功能相关信号类型
-        public static final int CS_AUDIO = 0x105;    // Client to Server - 音频数据
-        public static final int SC_AUDIO = 0x106;    // Server to Client - 音频控制
+        // 网络连接信号
+        public static final int SC_DISCONNECTED = 262; // 0x106 - Server to Client - 用户断开连接
         
-        public static final int CS_CAMERA = 0x107;   // Client to Server - 摄像头数据
-        public static final int SC_CAMERA = 0x108;   // Server to Client - 摄像头控制
+        // Android管理员信号
+        public static final int CS_MOBILE_ADMIN = 263; // 0x107 - Client to Server - Android管理员连接
+        public static final int SC_MOBILE_ADMIN = 264; // 0x108 - Server to Client - Android管理员成员信息
         
-        public static final int CS_CONTROL = 0x109;  // Client to Server - 控制响应
-        public static final int SC_CONTROL = 0x10A;  // Server to Client - 远程控制命令
+        // 设备控制信号
+        public static final int CS_ONOFF = 265;      // 0x109 - Client to Server - 设备开关控制
+        public static final int SC_ONOFF = 266;      // 0x10A - Server to Client - 设备开关状态
         
-        public static final int CS_FILE = 0x10B;     // Client to Server - 文件操作响应
-        public static final int SC_FILE = 0x10C;     // Server to Client - 文件操作命令
+        // 触摸控制信号 - 关键信号！
+        public static final int CS_TOUCHED = 267;    // 0x10B - Client to Server - 发送触摸坐标
+        public static final int SC_TOUCHED = 268;    // 0x10C - Server to Client - 接收触摸坐标
+        
+        // 摄像头信号
+        public static final int CS_CAMERA = 269;     // 0x10D - Client to Server - 摄像头数据
+        public static final int SC_CAMERA = 270;     // 0x10E - Server to Client - 摄像头数据
+        
+        // 音频信号
+        public static final int CS_RECORDED_AUDIO = 271; // 0x10F - Client to Server - 音频数据
+        public static final int SC_RECORDED_AUDIO = 272; // 0x110 - Server to Client - 音频数据
+        
+        // 手机选择信号
+        public static final int CS_SELECTED_PHONE = 273; // 0x111 - Client to Server - 选择手机
+        
+        // 保持兼容性 - 旧的信号名称(已废弃)
+        @Deprecated
+        public static final int CS_AUDIO = CS_RECORDED_AUDIO;
+        @Deprecated  
+        public static final int SC_AUDIO = SC_RECORDED_AUDIO;
+        @Deprecated
+        public static final int CS_CONTROL = CS_ONOFF;
+        @Deprecated
+        public static final int SC_CONTROL = SC_ONOFF;
+        @Deprecated
+        public static final int CS_FILE = CS_TOUCHED;
+        @Deprecated
+        public static final int SC_FILE = SC_TOUCHED;
     }
     
     // 屏幕捕获配置

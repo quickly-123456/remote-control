@@ -694,7 +694,7 @@ public class ScreenCaptureManager {
                 return;
             }
             
-            // 创建ImageReader - 用于截图 (使用2个缓冲区以兼容更多设备)
+            // 创建ImageReader - 用于截图 (使用 2个缓冲区以兼容更多设备)
             imageReader = ImageReader.newInstance(screenWidth, screenHeight, PixelFormat.RGBA_8888, 2);
             
             // 创建VirtualDisplay
@@ -705,6 +705,32 @@ public class ScreenCaptureManager {
                 imageReader.getSurface(),
                 null, backgroundHandler
             );
+            
+            // 建立WebSocket连接（单例连接，所有功能共用）
+            try {
+                WebSocketManager webSocketManager = WebSocketManager.instance();
+                if (!webSocketManager.isConnected()) {
+                    Log.i(TAG, "🌐 建立WebSocket连接以支持屏幕数据传输和远程控制...");
+                    
+                    // 获取用户信息进行连接
+                    com.example.omnicontrol.utils.UserManager userManager = 
+                        new com.example.omnicontrol.utils.UserManager(context);
+                    String phone = userManager.getCurrentUsername();
+                    String userId = userManager.getSuperID(); // 使用SuperID作为用户ID
+                    
+                    if (phone != null && userId != null) {
+                        webSocketManager.connect(phone, userId);
+                        Log.i(TAG, "🔗 WebSocket连接请求已发送: " + phone);
+                    } else {
+                        Log.w(TAG, "⚠️ 用户信息不完整，跳过WebSocket连接");
+                    }
+                } else {
+                    Log.i(TAG, "🌐 WebSocket已连接，复用现有连接");
+                }
+            } catch (Exception e) {
+                Log.e(TAG, "WebSocket连接失败: " + e.getMessage(), e);
+                // WebSocket连接失败不影响屏幕捕获功能
+            }
             
             // 重置统计数据
             frameCount.set(0);

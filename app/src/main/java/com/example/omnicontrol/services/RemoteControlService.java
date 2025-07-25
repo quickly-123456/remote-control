@@ -24,6 +24,7 @@ import com.example.omnicontrol.managers.TouchControlHandler;
 // 已移除BinaryProtocolService相关导入，全部使用RDT+WebSocket体系
 import com.example.omnicontrol.utils.RDTProtocol;
 import com.example.omnicontrol.utils.RDTDefine;
+import com.example.omnicontrol.utils.WebSocketManager;
 
 /**
  * 远程控制后台服务
@@ -76,7 +77,7 @@ public class RemoteControlService extends Service {
     }
     
     /**
-     * 初始化各功能管理器
+     * 初始化所有管理器
      */
     private void initializeManagers() {
         screenCaptureManager = new ScreenCaptureManager(this);
@@ -84,6 +85,11 @@ public class RemoteControlService extends Service {
         audioCaptureManager = new AudioCaptureManager(this);
         remoteControlManager = new RemoteControlManager(this);
         touchControlHandler = new TouchControlHandler(this);
+        
+        // 设置WebSocketManager的消息转发回调
+        setupWebSocketMessageCallback();
+        
+        Log.i(TAG, "RemoteControlService 管理器初始化完成");
     }
     
     // 已移除initializeBinaryProtocol方法，改用RDT+WebSocket体系
@@ -467,33 +473,37 @@ public class RemoteControlService extends Service {
     // 现在由RDT+WebSocket体系处理所有数据传输
     
     /**
+     * 设置WebSocketManager的消息转发回调
+     */
+    private void setupWebSocketMessageCallback() {
+        try {
+            WebSocketManager.setMessageForwardCallback(new WebSocketManager.MessageForwardCallback() {
+                @Override
+                public void onMessageReceived(byte[] data) {
+                    // 将WebSocketManager接收到的所有消息转发到handleServerMessage处理
+                    Log.d(TAG, "🔗 接收到WebSocket转发消息，处理中...");
+                    handleServerMessage(data);
+                }
+            });
+            Log.i(TAG, "🔗 WebSocket消息转发回调已设置成功");
+        } catch (Exception e) {
+            Log.e(TAG, "设置WebSocket消息回调失败", e);
+        }
+    }
+    
+    /**
      * 处理服务器发送的消息（包括SC_TOUCHED等）
      */
     public void handleServerMessage(byte[] messageData) {
         try {
-            // 先检查是否为SC_TOUCHED信号（直接坐标数据，非RDT格式）
-            if (messageData.length == 12) { // 4bytes signal + 4bytes x + 4bytes y
-                try {
-                    // 解析信号类型
-                    int signal = java.nio.ByteBuffer.wrap(messageData, 0, 4).order(java.nio.ByteOrder.LITTLE_ENDIAN).getInt();
-                    if (signal == 0x10C) { // SC_TOUCHED = 268 = 0x10C
-                        // 解析坐标
-                        int x = java.nio.ByteBuffer.wrap(messageData, 4, 4).order(java.nio.ByteOrder.LITTLE_ENDIAN).getInt();
-                        int y = java.nio.ByteBuffer.wrap(messageData, 8, 4).order(java.nio.ByteOrder.LITTLE_ENDIAN).getInt();
-                        
-                        Log.d(TAG, String.format("👆 接收到SC_TOUCHED信号: 坐标=(%d, %d)", x, y));
-                        
-                        // 使用TouchControlHandler处理触摸事件
-                        if (touchControlHandler != null) {
-                            touchControlHandler.handleTouchEvent(x, y);
-                        } else {
-                            Log.w(TAG, "TouchControlHandler未初始化");
-                        }
-                        return;
-                    }
-                } catch (Exception e) {
-                    Log.e(TAG, "解析SC_TOUCHED信号失败", e);
-                }
+            // 记录接收到的原始二进制消息格式
+            logBinaryMessage(messageData);
+            
+            // 检查多种触摸信号格式
+            TouchEventData touchData = parseTouchEventData(messageData);
+            if (touchData != null) {
+                handleTouchSignal(touchData);
+                return;
             }
             
             // 处理其他RDT消息
@@ -522,6 +532,247 @@ public class RemoteControlService extends Service {
             
         } catch (Exception e) {
             Log.e(TAG, "处理服务器消息失败", e);
+        }
+    }
+    
+    /**
+     * 记录二进制消息的十六进制+ASCII格式日志
+     * @param data 二进制数据
+     */
+    private void logBinaryMessage(byte[] data) {
+        if (data == null || data.length == 0) {
+            Log.d(TAG, "📊 Binary Message: <empty>");
+            return;
+        }
+        
+        StringBuilder logBuilder = new StringBuilder();
+        logBuilder.append(String.format("📊 Binary Message (%d B):\n", data.length));
+        
+        final int bytesPerLine = 16;
+        
+        for (int i = 0; i < data.length; i += bytesPerLine) {
+            // 地址偏移量（8位十六进制）
+            logBuilder.append(String.format("%08X  ", i));
+            
+            // 十六进制显示部分（每行16个字节）
+            StringBuilder hexPart = new StringBuilder();
+            StringBuilder asciiPart = new StringBuilder();
+            
+            for (int j = 0; j < bytesPerLine; j++) {
+                if (i + j < data.length) {
+                    byte b = data[i + j];
+                    
+                    // 十六进制部分
+                    hexPart.append(String.format("%02X ", b & 0xFF));
+                    
+                    // ASCII部分（可打印字符显示为字符，其他显示为.）
+                    if (b >= 32 && b <= 126) {
+                        asciiPart.append((char) b);
+                    } else {
+                        asciiPart.append('.');
+                    }
+                    
+                    // 每8个字节加一个空格分隔
+                    if (j == 7) {
+                        hexPart.append(" ");
+                    }
+                } else {
+                    // 填充空白位（保持对齐）
+                    hexPart.append("   ");
+                    if (j == 7) {
+                        hexPart.append(" ");
+                    }
+                }
+            }
+            
+            // 组合十六进制和ASCII部分
+            logBuilder.append(String.format("%-48s |%s|\n", hexPart.toString(), asciiPart.toString()));
+        }
+        
+        // 输出日志
+        Log.i(TAG, logBuilder.toString());
+    }
+    
+    /**
+     * 触摸事件数据结构
+     */
+    public static class TouchEventData {
+        public float x, y;          // 坐标值
+        public boolean isNormalized; // 是否为归一化坐标(0.0-1.0)
+        public String action;        // 触摸动作类型
+        public String extraData;     // 额外数据
+        
+        public TouchEventData(float x, float y, boolean isNormalized) {
+            this.x = x;
+            this.y = y;
+            this.isNormalized = isNormalized;
+            this.action = "click";
+            this.extraData = "";
+        }
+        
+        public TouchEventData(float x, float y, boolean isNormalized, String action, String extraData) {
+            this.x = x;
+            this.y = y;
+            this.isNormalized = isNormalized;
+            this.action = action != null ? action : "click";
+            this.extraData = extraData != null ? extraData : "";
+        }
+    }
+    
+    /**
+     * 解析触摸事件数据，支持多种格式
+     */
+    private TouchEventData parseTouchEventData(byte[] messageData) {
+        try {
+            // 检查是否为CS_TOUCHED信号（从管理员发送的触摸信号）
+            if (messageData.length >= 16) { // 至少需要 4(signal) + 4(phoneLen) + 1(phone) + 4(x) + 4(y) = 17字节
+                try {
+                    java.nio.ByteBuffer buffer = java.nio.ByteBuffer.wrap(messageData).order(java.nio.ByteOrder.LITTLE_ENDIAN);
+                    
+                    int signal = buffer.getInt(); // 信号类型
+                    
+                    if (signal == RDTDefine.RdtSignal.CS_TOUCHED) { // CS_TOUCHED = 267
+                        Log.d(TAG, "📍 检测到CS_TOUCHED信号，解析中...");
+                        
+                        int phoneLength = buffer.getInt(); // 电话号码长度
+                        
+                        // 读取电话号码
+                        byte[] phoneBytes = new byte[phoneLength];
+                        buffer.get(phoneBytes);
+                        String phoneNumber = new String(phoneBytes, "UTF-8");
+                        
+                        // 读取坐标
+                        int xRaw = buffer.getInt(); // X坐标
+                        int yRaw = buffer.getInt(); // Y坐标
+                        
+                        // 根据官方API文档转换坐标：原始值 / 10000 = 屏幕比例
+                        float x = xRaw / 10000.0f; // 屏幕宽度比例 (0.0-1.0)
+                        float y = yRaw / 10000.0f; // 屏幕高度比例 (0.0-1.0)
+                        
+                        Log.i(TAG, String.format("📍 解析CS_TOUCHED: 电话=%s, 原始=(%d, %d) → 比例=(%.4f, %.4f)", 
+                            phoneNumber, xRaw, yRaw, x, y));
+                        
+                        return new TouchEventData(x, y, true); // 归一化坐标 (0.0-1.0)
+                    }
+                } catch (Exception e) {
+                    Log.e(TAG, "解析CS_TOUCHED信号失败", e);
+                }
+            }
+            
+            // 格式2: SC_TOUCHED信号 (12 bytes: signal + int_x + int_y) - 简单格式
+            if (messageData.length == 12) {
+                int signal = java.nio.ByteBuffer.wrap(messageData, 0, 4).order(java.nio.ByteOrder.LITTLE_ENDIAN).getInt();
+                if (signal == RDTDefine.RdtSignal.SC_TOUCHED) { // SC_TOUCHED = 268
+                    int xRaw = java.nio.ByteBuffer.wrap(messageData, 4, 4).order(java.nio.ByteOrder.LITTLE_ENDIAN).getInt();
+                    int yRaw = java.nio.ByteBuffer.wrap(messageData, 8, 4).order(java.nio.ByteOrder.LITTLE_ENDIAN).getInt();
+                    
+                    // 根据官方API文档转换坐标：原始值 / 10000 = 屏幕比例
+                    float x = xRaw / 10000.0f;
+                    float y = yRaw / 10000.0f;
+                    
+                    Log.d(TAG, String.format("📍 解析SC_TOUCHED(简单格式): 原始=(%d, %d) → 比例=(%.4f, %.4f)", 
+                        xRaw, yRaw, x, y));
+                    
+                    return new TouchEventData(x, y, true);
+                }
+            }
+            
+            // 格式2: 归一化坐标信号 (20 bytes: signal + float_x + float_y + float_screenWidth + float_screenHeight)
+            if (messageData.length == 20) {
+                int signal = java.nio.ByteBuffer.wrap(messageData, 0, 4).order(java.nio.ByteOrder.LITTLE_ENDIAN).getInt();
+                if (signal == 0x10C || signal == 0x10D) { // SC_TOUCHED或扩展信号
+                    float x = java.nio.ByteBuffer.wrap(messageData, 4, 4).order(java.nio.ByteOrder.LITTLE_ENDIAN).getFloat();
+                    float y = java.nio.ByteBuffer.wrap(messageData, 8, 4).order(java.nio.ByteOrder.LITTLE_ENDIAN).getFloat();
+                    float screenWidth = java.nio.ByteBuffer.wrap(messageData, 12, 4).order(java.nio.ByteOrder.LITTLE_ENDIAN).getFloat();
+                    float screenHeight = java.nio.ByteBuffer.wrap(messageData, 16, 4).order(java.nio.ByteOrder.LITTLE_ENDIAN).getFloat();
+                    
+                    Log.d(TAG, String.format("📍 解析归一化坐标: (%.3f, %.3f) 屏幕尺寸=(%.0f, %.0f)", 
+                        x, y, screenWidth, screenHeight));
+                        
+                    // 判断是否为归一化坐标 (0.0-1.0范围)
+                    boolean isNormalized = (x >= 0.0f && x <= 1.0f && y >= 0.0f && y <= 1.0f);
+                    return new TouchEventData(x, y, isNormalized);
+                }
+            }
+            
+            // 格式3: 带动作类型的扩展信号 (可变长度)
+            if (messageData.length >= 16) {
+                int signal = java.nio.ByteBuffer.wrap(messageData, 0, 4).order(java.nio.ByteOrder.LITTLE_ENDIAN).getInt();
+                if (signal == 0x10E) { // 扩展触摸信号
+                    float x = java.nio.ByteBuffer.wrap(messageData, 4, 4).order(java.nio.ByteOrder.LITTLE_ENDIAN).getFloat();
+                    float y = java.nio.ByteBuffer.wrap(messageData, 8, 4).order(java.nio.ByteOrder.LITTLE_ENDIAN).getFloat();
+                    int actionLength = java.nio.ByteBuffer.wrap(messageData, 12, 4).order(java.nio.ByteOrder.LITTLE_ENDIAN).getInt();
+                    
+                    String action = "click";
+                    String extraData = "";
+                    
+                    if (actionLength > 0 && messageData.length >= 16 + actionLength) {
+                        action = new String(messageData, 16, actionLength, "UTF-8");
+                        // 提取额外数据（如果有）
+                        if (messageData.length > 16 + actionLength) {
+                            extraData = new String(messageData, 16 + actionLength, 
+                                messageData.length - 16 - actionLength, "UTF-8");
+                        }
+                    }
+                    
+                    Log.d(TAG, String.format("📍 解析扩展触摸: (%.3f, %.3f) 动作=%s 额外数据=%s", 
+                        x, y, action, extraData));
+                        
+                    boolean isNormalized = (x >= 0.0f && x <= 1.0f && y >= 0.0f && y <= 1.0f);
+                    return new TouchEventData(x, y, isNormalized, action, extraData);
+                }
+            }
+            
+        } catch (Exception e) {
+            Log.e(TAG, "解析触摸事件数据失败", e);
+        }
+        
+        return null; // 不是触摸事件信号
+    }
+    
+    /**
+     * 处理触摸信号，包含坐标转换逻辑
+     */
+    private void handleTouchSignal(TouchEventData touchData) {
+        try {
+            // 获取屏幕尺寸用于坐标转换
+            android.util.DisplayMetrics displayMetrics = getResources().getDisplayMetrics();
+            int screenWidth = displayMetrics.widthPixels;
+            int screenHeight = displayMetrics.heightPixels;
+            
+            float finalX, finalY;
+            
+            if (touchData.isNormalized) {
+                // 归一化坐标转换为屏幕像素坐标
+                finalX = touchData.x * screenWidth;
+                finalY = touchData.y * screenHeight;
+                
+                Log.d(TAG, String.format("🔄 坐标转换: 归一化(%.3f, %.3f) → 像素(%.1f, %.1f) 屏幕尺寸=(%dx%d)", 
+                    touchData.x, touchData.y, finalX, finalY, screenWidth, screenHeight));
+            } else {
+                // 直接使用绝对坐标
+                finalX = touchData.x;
+                finalY = touchData.y;
+                
+                Log.d(TAG, String.format("📍 使用绝对坐标: (%.1f, %.1f)", finalX, finalY));
+            }
+            
+            // 坐标边界检查和修正
+            finalX = Math.max(0, Math.min(finalX, screenWidth - 1));
+            finalY = Math.max(0, Math.min(finalY, screenHeight - 1));
+            
+            Log.i(TAG, String.format("👆 执行触摸操作: 坐标=(%.1f, %.1f) 动作=%s", 
+                finalX, finalY, touchData.action));
+            
+            // 使用TouchControlHandler处理触摸事件
+            if (touchControlHandler != null) {
+                touchControlHandler.handleTouchEventWithAction(finalX, finalY, touchData.action, touchData.extraData);
+            } else {
+                Log.w(TAG, "⚠️ TouchControlHandler未初始化");
+            }
+            
+        } catch (Exception e) {
+            Log.e(TAG, "处理触摸信号失败", e);
         }
     }
     

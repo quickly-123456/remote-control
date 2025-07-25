@@ -67,6 +67,30 @@ public class TouchControlHandler {
     }
     
     /**
+     * 处理带动作类型的触摸事件（支持多种触摸动作）
+     * @param x X坐标
+     * @param y Y坐标
+     * @param action 触摸动作类型（click, long_press, swipe, double_click等）
+     * @param extraData 额外数据（如滑动的终点坐标等）
+     */
+    public void handleTouchEventWithAction(float x, float y, String action, String extraData) {
+        // 添加详细的触摸事件日志
+        Log.d(TAG, String.format("🎯 接收到触摸事件: 坐标=(%.1f, %.1f) 动作=%s 额外数据=%s", 
+            x, y, action, extraData));
+        
+        if (accessibilityService == null) {
+            Log.w(TAG, "⚠️ 无障碍服务未可用，无法执行触摸操作");
+            if (callback != null) {
+                callback.onTouchError("无障碍服务未启用，无法执行触摸操作");
+            }
+            return;
+        }
+        
+        // 执行指定动作的触摸操作
+        executeTouchAction((int)x, (int)y, action, extraData);
+    }
+    
+    /**
      * 处理SC_TOUCHED信号 - 执行触摸操作（保留原有方法兼容性）
      */
     // handleTouchMessage方法已移除 - 不再使用Binary Protocol
