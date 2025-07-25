@@ -12,11 +12,13 @@ import androidx.recyclerview.widget.RecyclerView;
 import com.blankj.utilcode.util.ActivityUtils;
 import com.blankj.utilcode.util.BarUtils;
 import com.orhanobut.hawk.Hawk;
+import com.zhongkong.app.activity.ProjectionScreenActivity;
 import com.zhongkong.app.activity.UpdatePasswordActivity;
 import com.zhongkong.app.adapter.DeviceAdapter;
 import com.zhongkong.app.databinding.ActivityMainBinding;
 import com.zhongkong.app.model.Device;
 import com.zhongkong.app.utils.ConstantUtil;
+import com.zhongkong.app.utils.WebSocketManager;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -34,24 +36,21 @@ public class MainActivity extends AppCompatActivity {
         super.onCreate(savedInstanceState);
         binding = ActivityMainBinding.inflate(getLayoutInflater());
         setContentView(binding.getRoot());
-
-
         initView();
         initData();
-
     }
 
     private void initData() {
-        binding.appBarMain.bottomNavigation.setBadge(0,  deviceList.size());
-        binding.appBarMain.bottomNavigation.setBadge(1, (int) deviceList.stream().filter(Device::isConnected).count());
-        binding.appBarMain.bottomNavigation.setBadge(2, (int) deviceList.stream().filter(device -> !device.isConnected()).count());
+        binding.appMain.bottomNavigation.setBadge(0,  deviceList.size());
+        binding.appMain.bottomNavigation.setBadge(1, (int) deviceList.stream().filter(Device::isConnected).count());
+        binding.appMain.bottomNavigation.setBadge(2, (int) deviceList.stream().filter(device -> !device.isConnected()).count());
     }
 
     private void initView() {
         BarUtils.transparentStatusBar(this);
         BarUtils.setStatusBarLightMode(this, true);
         binding.navView.setPadding(0, BarUtils.getStatusBarHeight(), 0, 0);
-        binding.appBarMain.imgDrawSwitch.setOnClickListener(v -> {
+        binding.appMain.imgDrawSwitch.setOnClickListener(v -> {
             binding.drawerLayout.openDrawer(GravityCompat.START);
         });
         binding.imgNavClose.setOnClickListener(v->{
@@ -69,7 +68,7 @@ public class MainActivity extends AppCompatActivity {
             ActivityUtils.startActivity(UpdatePasswordActivity.class);
         });
 
-        binding.appBarMain.bottomNavigation.setOnItemSelectedListener(position -> {
+        binding.appMain.bottomNavigation.setOnItemSelectedListener(position -> {
             switch (position){
                 case 0:
                     adapter.updateData(deviceList);
@@ -83,7 +82,7 @@ public class MainActivity extends AppCompatActivity {
             }
         });
 
-        RecyclerView recyclerView = binding.appBarMain.recyclerView;
+        RecyclerView recyclerView = binding.appMain.recyclerView;
         recyclerView.setLayoutManager(new LinearLayoutManager(this));
 
         deviceList = new ArrayList<>();
@@ -97,6 +96,11 @@ public class MainActivity extends AppCompatActivity {
         deviceList.add(new Device("Redmi-K40", "15825859652", true));
 
         adapter = new DeviceAdapter(this, deviceList);
+        adapter.setOnItemClickListener((resId, position) -> {
+            if (resId == R.id.btn_projection_screen) {
+                ActivityUtils.startActivity(ProjectionScreenActivity.class);
+            }
+        });
         recyclerView.setAdapter(adapter);
     }
 }

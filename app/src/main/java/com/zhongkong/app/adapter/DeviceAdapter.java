@@ -23,6 +23,12 @@ public class DeviceAdapter extends RecyclerView.Adapter<DeviceAdapter.DeviceView
     private List<Device> deviceList;
     private Context context;
 
+    private OnItemClickListener mOnItemClickListener;
+
+    public void setOnItemClickListener(OnItemClickListener listener) {
+        mOnItemClickListener = listener;
+    }
+
     public DeviceAdapter(Context context, List<Device> deviceList) {
         this.context = context;
         this.deviceList = deviceList;
@@ -71,6 +77,12 @@ public class DeviceAdapter extends RecyclerView.Adapter<DeviceAdapter.DeviceView
             device.setConnected(newState);
             notifyItemChanged(position);
         });
+
+        holder.btnProjectionScreen.setOnClickListener(v -> {
+            if(mOnItemClickListener!=null){
+                mOnItemClickListener.onItemClick(R.id.btn_projection_screen, position);
+            }
+        });
     }
 
     @Override
@@ -92,6 +104,13 @@ public class DeviceAdapter extends RecyclerView.Adapter<DeviceAdapter.DeviceView
             status = itemView.findViewById(R.id.img_status);
             actionButton = itemView.findViewById(R.id.action_button);
             btnProjectionScreen = itemView.findViewById(R.id.btn_projection_screen);
+
+
         }
+    }
+
+
+    public interface OnItemClickListener {
+        void onItemClick(int resId, int position);
     }
 }
