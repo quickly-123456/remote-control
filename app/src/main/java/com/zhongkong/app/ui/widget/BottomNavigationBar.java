@@ -56,6 +56,14 @@ public class BottomNavigationBar extends LinearLayout {
         // 设置初始选中项
         setSelectedItem(selectedItem);
     }
+
+    public BottomNavigationItem getItem(int position) {
+        return items.get(position);
+    }
+
+    public int getCurrentPosition(){
+        return selectedItem;
+    }
     
     public void setSelectedItem(int position) {
         if (position < 0 || position >= items.size()) return;

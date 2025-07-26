@@ -52,6 +52,9 @@ dependencies {
     implementation "com.orhanobut:hawk:2.0.1"
     implementation 'com.afollestad.material-dialogs:core:3.3.0'
 
+    implementation  'io.github.scwang90:refresh-layout-kernel:3.0.0-alpha'      //核心必须依赖
+    implementation  'io.github.scwang90:refresh-header-classics:3.0.0-alpha'    //经典刷新头
+
     implementation 'org.java-websocket:Java-WebSocket:1.6.0'
     implementation 'com.github.bumptech.glide:glide:4.16.0'
 

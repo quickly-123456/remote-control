@@ -29,7 +29,7 @@ public class WebSocketManager {
     
     // WebSocket 服务器地址
     private String wsUrl = "ws://185.128.227.222:5050";
-    
+
     // 连接状态监听器
     private WebSocketListener listener;
     
@@ -38,7 +38,9 @@ public class WebSocketManager {
     
     // 心跳调度器
     private final ScheduledExecutorService heartbeatExecutor = Executors.newSingleThreadScheduledExecutor();
-    
+
+
+
     // 配置参数
     private int heartbeatInterval = 30000; // 心跳间隔(毫秒)
     private boolean autoReconnect = true; // 是否自动重连
@@ -87,7 +89,7 @@ public class WebSocketManager {
         }
         
         if (isConnected()) {
-            disconnect();
+            return;
         }
         
         try {
@@ -99,6 +101,7 @@ public class WebSocketManager {
             }
         }
 
+        autoReconnect = true; //默认可以自动重连
         currentReconnectCount++;
     }
 

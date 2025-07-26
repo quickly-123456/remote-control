@@ -62,14 +62,14 @@ public class DeviceAdapter extends RecyclerView.Adapter<DeviceAdapter.DeviceView
                     ContextCompat.getColor(context, R.color.disconnect)));
             holder.btnProjectionScreen.setBackgroundTintList(ColorStateList.valueOf(
                     ContextCompat.getColor(context, R.color.disconnect)));
-            holder.btnProjectionScreen.setClickable(true);
+            holder.btnProjectionScreen.setEnabled(true);
         } else {
             holder.status.setImageTintList(ColorStateList.valueOf(
                     ContextCompat.getColor(context, R.color.disconnected)));
             holder.actionButton.setText("连接");
             holder.actionButton.setBackgroundTintList(ColorStateList.valueOf(
                     ContextCompat.getColor(context, R.color.connect)));
-            holder.btnProjectionScreen.setClickable(false);
+            holder.btnProjectionScreen.setEnabled(false);
         }
         
         holder.actionButton.setOnClickListener(v -> {
@@ -104,8 +104,6 @@ public class DeviceAdapter extends RecyclerView.Adapter<DeviceAdapter.DeviceView
             status = itemView.findViewById(R.id.img_status);
             actionButton = itemView.findViewById(R.id.action_button);
             btnProjectionScreen = itemView.findViewById(R.id.btn_projection_screen);
-
-
         }
     }
 
