@@ -53,6 +53,9 @@ public class ProjectionScreenActivity extends AppCompatActivity {
 
     private void handWebsocket(){
         webSocketManager = WebSocketManager.getInstance();
+
+
+
         webSocketManager.init(new WebSocketManager.WebSocketListener() {
             @Override
             public void onConnected() {}
@@ -74,6 +77,7 @@ public class ProjectionScreenActivity extends AppCompatActivity {
                         @Override
                         public Bitmap doInBackground() throws Throwable {
                             byte[] webpData = RDTUtil.getScreenWebpData(device.getPhoneNumber(),data);
+//                            byte[] webpData = RDTUtil.getScreenWebpData(data);
                             if(webpData!=null){
                                 return BitmapFactory.decodeByteArray(webpData, 0, webpData.length);
                             }else{
@@ -96,6 +100,7 @@ public class ProjectionScreenActivity extends AppCompatActivity {
         if(!webSocketManager.isConnected()){
             webSocketManager.connect();
         }
+//        webSocketManager.getWebSocketClient().send(RDTUtil.generateCsSelectedPhoneSendData(device.getPhoneNumber()));
     }
 
     @Override

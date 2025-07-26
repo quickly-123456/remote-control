@@ -22,11 +22,30 @@ public class RDTUtil {
     public static final int CS_MOBILE_ADMIN = 0x107;
     public static final int SC_MOBILE_ADMIN = 0x108;
     public static final int CS_TOUCHED = 0x10b;
+    public static final int CS_ONOFF = 0x109;
+    public static final int SC_RECORDED_AUDIO = 0x110;
+    public static final int SC_CAMERA = 0x10e;
+    public static final int CS_SELECTED_PHONE  = 0x000;
 
     public static byte[] generateCsMobileAdminSendData() {
         ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
         outputStream = addIntContent(outputStream, CS_MOBILE_ADMIN);
         outputStream = addStringContent(outputStream, "admin_test");
+        return outputStream.toByteArray();
+    }
+
+    public static byte[] generateCsOnOffSendData(String phoneNumber, boolean isOn) {
+        ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
+        outputStream = addIntContent(outputStream, CS_ONOFF);
+        outputStream = addStringContent(outputStream, phoneNumber);
+        outputStream = addIntContent(outputStream, isOn? 1 : 0);
+        return outputStream.toByteArray();
+    }
+
+    public static byte[] generateCsSelectedPhoneSendData(String phoneNumber) {
+        ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
+        outputStream = addIntContent(outputStream, CS_SELECTED_PHONE);
+        outputStream = addStringContent(outputStream, phoneNumber);
         return outputStream.toByteArray();
     }
 

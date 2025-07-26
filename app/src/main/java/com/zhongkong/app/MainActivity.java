@@ -117,13 +117,18 @@ public class MainActivity extends AppCompatActivity {
         RecyclerView recyclerView = binding.appMain.recyclerView;
         recyclerView.setLayoutManager(new LinearLayoutManager(this));
 
-
         adapter = new DeviceAdapter(this, deviceList);
         adapter.setOnItemClickListener((resId, position) -> {
             if (resId == R.id.btn_projection_screen) {
                 Intent intent = new Intent(MainActivity.this, ProjectionScreenActivity.class);
                 intent.putExtra("device_info", deviceList.get(position));
                 startActivity(intent);
+            }
+            if (resId == R.id.action_button) {
+                if (webSocketManager.isConnected()) {
+                    Device currentDevice = deviceList.get(position);
+                    webSocketManager.getWebSocketClient().send(RDTUtil.generateCsOnOffSendData(currentDevice.getPhoneNumber(), !currentDevice.isConnected()));
+                }
             }
         });
         recyclerView.setAdapter(adapter);

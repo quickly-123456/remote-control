@@ -76,6 +76,9 @@ public class DeviceAdapter extends RecyclerView.Adapter<DeviceAdapter.DeviceView
             boolean newState = !device.isConnected();
             device.setConnected(newState);
             notifyItemChanged(position);
+            if(mOnItemClickListener!=null){
+                mOnItemClickListener.onItemClick(R.id.btn_projection_screen, position);
+            }
         });
 
         holder.btnProjectionScreen.setOnClickListener(v -> {
